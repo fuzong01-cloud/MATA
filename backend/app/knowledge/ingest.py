@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.database.models import Document, Slide, SlideVisual
-from app.knowledge.parser import iter_ppt_entries, module_for_name, parse_presentation, split_slide
+from app.knowledge.parser import PARSER_VERSION, iter_ppt_entries, module_for_name, parse_presentation, split_slide
 from app.knowledge.vector import collection, embed_texts
 
 
@@ -56,7 +56,8 @@ def import_course_zip(db: Session, force: bool = False) -> dict:
     all_vector_ids = vector_collection.get(include=[])["ids"]
     old_prefixes = tuple(f"d{document.id}-" for document in existing)
     old_ids = [item for item in all_vector_ids if item.startswith(old_prefixes)] if old_prefixes else []
-    if not force and existing and all(document.zip_sha256 == digest for document in existing) and old_ids:
+    if not force and existing and all(document.zip_sha256 == digest and
+                                      document.parser_version >= PARSER_VERSION for document in existing) and old_ids:
         return {"status": "unchanged", **current_stats(db), "file_errors": []}
 
     prepared = []
@@ -99,6 +100,7 @@ def import_course_zip(db: Session, force: bool = False) -> dict:
             zip_entry=entry,
             zip_sha256=digest,
             source_type="pptx",
+            parser_version=PARSER_VERSION,
             slide_count=len(slides),
         )
         db.add(document)

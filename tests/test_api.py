@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.database.models import Base
+from app.database.models import Base, Document, DocumentAsset
 from app.database.session import get_db
 from app.main import app
 from app.core.config import settings
@@ -135,3 +135,41 @@ def test_code_endpoint_reports_syntax_error():
     response = client.post("/api/code/analyze", json={"language": "python", "code": "def f(: pass", "student_key": STUDENT_KEY})
     assert response.status_code == 200
     assert response.json()["status"] == "syntax_error"
+
+
+def test_course_document_image_asset_route_is_scoped_and_safe(tmp_path, monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings, "root", tmp_path)
+    monkeypatch.setattr(settings, "material_upload_path", tmp_path / "uploads" / "materials")
+    settings.material_upload_path.mkdir(parents=True)
+    image_path = settings.material_upload_path / "asset.png"
+    image_path.write_bytes(b"image-data")
+
+    def temporary_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = temporary_db
+    try:
+        with Session(engine) as session:
+            document = Document(filename="manual.docx", module="Web开发", zip_entry="uploaded/test",
+                                zip_sha256="0" * 64, source_type="docx", storage_path="uploads/manual.docx")
+            session.add(document)
+            session.flush()
+            asset = DocumentAsset(document_id=document.id, asset_key="rId1",
+                                  storage_path="uploads/materials/asset.png", mime_type="image/png")
+            session.add(asset)
+            session.commit()
+            document_id, asset_id = document.id, asset.id
+
+        client = student_client()
+        response = client.get(f"/api/materials/{document_id}/assets/{asset_id}")
+        assert response.status_code == 200
+        assert response.content == b"image-data"
+        assert response.headers["content-type"] == "image/png"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert client.get(f"/api/materials/{document_id + 1}/assets/{asset_id}").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()

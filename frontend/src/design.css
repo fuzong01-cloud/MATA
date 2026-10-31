@@ -149,8 +149,8 @@ button:disabled { cursor: not-allowed; }
 .assignment-hero-stat strong { font-size: 36px; line-height: 1; }
 .assignment-hero-stat span { margin-top: 8px; font-size: 10px; color: #c6e8d2; }
 .assignment-filters { gap: 10px; margin-bottom: 7px; }
-.assignment-filters select, .assignment-filters input { height: 42px; border-radius: 10px; border-color: #d4e5d7; background: #fff; font-size: 12px; }
-.assignment-filters select { min-width: 160px; }
+.assignment-filters input { height: 42px; border-radius: 10px; border-color: #d4e5d7; background: #fff; font-size: 12px; }
+.assignment-filters .custom-select { min-width: 160px; }
 .assignment-count { margin: 10px 0 15px; font-size: 11px; }
 .assignment-layout { grid-template-columns: minmax(245px, 315px) minmax(0, 1fr); gap: 18px; }
 .assignment-list { max-height: calc(100vh - 300px); padding-right: 6px; }
@@ -202,7 +202,7 @@ button:disabled { cursor: not-allowed; }
 .profile-workspace { width: min(760px, calc(100% - 48px)); margin: 34px auto; }
 .profile-form, .teacher-access { display: grid; gap: 16px; margin-top: 25px; padding: 27px; border: 1px solid #dce9df; border-radius: 16px; background: #fff; box-shadow: 0 8px 25px #173f2a0b; }
 .profile-form label { display: grid; gap: 8px; color: #315443; font-size: 13px; font-weight: 650; }
-.profile-form input, .teacher-access input, .analytics-filters input, .analytics-filters select { min-height: 42px; border: 1px solid #d5e4d9; border-radius: 10px; padding: 9px 12px; background: #fff; color: #274735; font: inherit; }
+.profile-form input, .teacher-access input, .analytics-filters input { min-height: 42px; border: 1px solid #d5e4d9; border-radius: 10px; padding: 9px 12px; background: #fff; color: #274735; font: inherit; }
 .profile-form .send-button, .teacher-access .send-button { justify-self: start; }
 .profile-saved { margin: 0; color: #26734d; font-size: 12px; }
 .teacher-access { max-width: 520px; }
@@ -210,7 +210,7 @@ button:disabled { cursor: not-allowed; }
 .teacher-access p { margin: 0; color: #708879; font-size: 13px; }
 .analytics-filters { display: flex; flex-wrap: wrap; gap: 12px; margin: 15px 0 19px; }
 .analytics-filters label { display: grid; gap: 5px; color: #587466; font-size: 11px; font-weight: 650; }
-.analytics-filters input, .analytics-filters select { min-width: 145px; font-size: 12px; }
+.analytics-filters input, .analytics-filters .custom-select { min-width: 145px; font-size: 12px; }
 .analytics-stats { margin-bottom: 19px; }
 .analytics-grids { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 29px; }
 .analytics-card { min-width: 0; max-height: 285px; overflow: auto; padding: 17px 18px; border: 1px solid #dfe9e1; border-radius: 13px; background: #fff; }
@@ -234,7 +234,7 @@ button:disabled { cursor: not-allowed; }
 .teacher-review-form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 13px; margin-top: 18px; }
 .teacher-review-form label { display: grid; gap: 6px; color: #355a44; font-size: 11px; font-weight: 700; }
 .teacher-review-form label:has(textarea) { grid-column: 1 / -1; }
-.teacher-review-form input, .teacher-review-form select, .teacher-review-form textarea { border: 1px solid #d6e4da; border-radius: 9px; padding: 9px 11px; background: #fff; color: #294835; font: inherit; }
+.teacher-review-form input, .teacher-review-form textarea { border: 1px solid #d6e4da; border-radius: 9px; padding: 9px 11px; background: #fff; color: #294835; font: inherit; }
 .teacher-review-form .send-button { justify-self: start; }
 .teacher-feedback { display: flex; flex-wrap: wrap; gap: 7px 15px; margin-top: 14px; padding: 12px 14px; border: 1px solid #cce6d5; border-radius: 10px; background: #eff8f1; color: #2c6546; font-size: 11px; }
 .teacher-feedback p { width: 100%; margin: 0; line-height: 1.6; }

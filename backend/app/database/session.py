@@ -35,6 +35,9 @@ def init_db() -> None:
     if "storage_path" not in document_columns:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE documents ADD COLUMN storage_path TEXT"))
+    if "parser_version" not in document_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE documents ADD COLUMN parser_version INTEGER NOT NULL DEFAULT 1"))
     # Add session grouping to existing SQLite/MySQL databases without requiring a reset.
     columns = {column["name"] for column in inspect(engine).get_columns("conversations")}
     if "session_id" not in columns:

@@ -12,8 +12,10 @@ SPECIFIC_EQUIPMENT_TERMS = (
     "adam", "烟雾", "火焰", "lcd", "数码管", "气象站", "风速", "二氧化碳", "co2", "co₂",
     "大气压力", "继电器", "补光灯", "报警灯", "火灾报警", "水温", "液位", "土壤",
 )
-
-
+CURRICULUM_OVERVIEW_PATTERN = re.compile(
+    r"课程(?:体系|大纲|模块|内容|安排)|课程全貌|整体(?:课程|模块)|完整(?:课程|模块)|"
+    r"(?:学|学习)(?:哪些|什么|啥)(?:课程|模块|内容)|有哪些(?:课程|模块|内容)|主要学什么"
+)
 @dataclass(frozen=True)
 class AgentResult:
     agent: str
@@ -70,6 +72,17 @@ def retrieval_query(question: str, module: str | None) -> str:
     return question
 
 
+def is_curriculum_overview_question(question: str, module: str | None = None) -> bool:
+    """Detect questions that need module coverage rather than a handful of topical chunks."""
+    if module is not None or not CURRICULUM_OVERVIEW_PATTERN.search(question):
+        return False
+    explicitly_scoped = any(term in question for term in (
+        "嵌入式", "STM32", "Web开发", "Web 开发", "Android", "安卓", "虚拟仿真", "仿真模块",
+    ))
+    asks_all = any(term in question for term in ("所有模块", "全部模块", "整体课程", "完整课程", "各模块"))
+    return not explicitly_scoped or asks_all
+
+
 def is_ambiguous_wiring_question(question: str) -> bool:
     normalized = question.lower()
     return (any(term in question for term in WIRING_TERMS)
@@ -100,6 +113,21 @@ def _guide_lines(excerpt: str, question: str) -> list[str]:
 def respond_offline(question: str, evidence: list[dict]) -> AgentResult:
     agent = choose_agent(question)
     trace = ["识别问题类型", "从课程 PPT 检索证据"]
+    normalized = question.lower()
+    if "modbus" in normalized and "rtu" in normalized and "crc" in normalized and any(
+        term in question for term in ("什么用", "作用", "用途", "为什么", "干什么")
+    ):
+        answer = ("通用知识：Modbus RTU 报文末尾的 CRC 用于检测传输错误。发送方根据报文内容计算校验值，"
+                  "接收方重新计算并比较；不一致时通常将该帧判为错误。CRC 能发现数据损坏，但不能纠正错误，"
+                  "也不能证明设备地址或寄存器配置正确。")
+        return AgentResult(agent, answer, "answered_basic", trace + ["使用基础协议知识回答"])
+    if "modbus" in normalized and "rtu" in normalized and any(
+        term in question for term in ("什么是", "是什么", "介绍", "解释")
+    ):
+        answer = ("通用知识：Modbus RTU 是 Modbus 在串行通信中的一种报文格式，常用于 RS-485 设备之间通信。"
+                  "一帧通常包含设备地址、功能码、数据和 CRC 校验；设备通过地址区分通信对象，"
+                  "帧与帧之间用静默时间分隔。具体波特率、设备地址和寄存器表应以设备手册为准。")
+        return AgentResult(agent, answer, "answered_basic", trace + ["使用基础协议知识回答"])
     if is_ambiguous_wiring_question(question):
         candidates = "\n".join(
             f"- {item['filename']} · 第 {item['slide_number']} {item.get('unit_label', '页')}"
@@ -136,6 +164,46 @@ def respond_offline(question: str, evidence: list[dict]) -> AgentResult:
     answer += "\n\n以上是离线课程资料摘录与整理，具体操作请以所引原始资料为准。"
     trace.append(f"由{agent}整理课件内容")
     return AgentResult(agent, answer, "answered_from_slides", trace)
+
+
+def respond_course_overview(evidence: list[dict], modules: tuple[str, ...]) -> AgentResult:
+    """Summarize only retrieved module evidence and explicitly call out coverage gaps."""
+    trace = ["识别为课程全貌问题", "按课程模块分别检索课件依据"]
+    if not evidence:
+        return AgentResult("course_qa", "目前没有检索到足以整理课程模块的课件依据，无法确认完整课程范围。",
+                           "insufficient_evidence", trace)
+
+    lines = []
+    missing = []
+    for module in modules:
+        module_items = [(index, item) for index, item in enumerate(evidence, 1)
+                        if item.get("module") == module]
+        if not module_items:
+            missing.append(module)
+            continue
+        details = []
+        for source_index, item in module_items:
+            extracted = _useful_lines(item.get("excerpt", ""), f"{module} 课程模块 学习内容", 2)
+            if not extracted:
+                excerpt = re.sub(r"\s+", " ", item.get("excerpt", "")).strip()[:180]
+                extracted = [excerpt] if excerpt else []
+            for detail in extracted:
+                candidate = f"{detail} [{source_index}]"
+                if candidate not in details:
+                    details.append(candidate)
+        if details:
+            lines.append(f"- **{module}**：" + "；".join(details[:3]))
+        else:
+            missing.append(module)
+
+    if not lines:
+        return AgentResult("course_qa", "本轮检索到的资料不足以归纳课程模块，请查看课件依据或缩小问题范围。",
+                           "insufficient_evidence", trace)
+    answer = "根据当前检索到的课件，各模块可确认的内容如下：\n" + "\n".join(lines)
+    if missing:
+        answer += "\n\n本轮没有检索到足够依据的模块：" + "、".join(missing) + "。"
+    answer += "\n\n这是按已检索课件整理的概览，不等同于完整的专业培养方案；请以课程原始资料为准。"
+    return AgentResult("course_qa", answer, "answered_from_slides", trace)
 
 
 def analyze_python(code: str) -> dict:

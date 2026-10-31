@@ -23,10 +23,23 @@ class Document(Base):
     zip_entry: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
     zip_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, default="pptx")
+    parser_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     storage_path: Mapped[str | None] = mapped_column(Text)
     slide_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     slides: Mapped[list[Slide]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    assets: Mapped[list[DocumentAsset]] = relationship(back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentAsset(Base):
+    __tablename__ = "document_assets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    asset_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    document: Mapped[Document] = relationship(back_populates="assets")
 
 
 class MaterialRevision(Base):

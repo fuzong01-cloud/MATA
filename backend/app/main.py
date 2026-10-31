@@ -7,7 +7,6 @@ import binascii
 import zipfile
 import re
 import uuid
-import math
 import hmac
 import hashlib
 from collections import Counter, defaultdict
@@ -25,15 +24,17 @@ from sqlalchemy.orm import Session
 
 from app.agents.llm import (generate_assignment_grade, generate_assignment_guidance,
                              generate_code_review, generate_general_answer, generate_grounded_answer,
-                             generate_learning_summary,
+                             generate_learning_summary, GroundingValidationError, score_items_percent,
                              is_visual_question, synthesize_grounded_answers)
 from app.agents.offline import (
     AgentResult,
     analyze_code_locally,
     detect_code_language,
     is_ambiguous_wiring_question,
+    is_curriculum_overview_question,
     plan_agents,
     respond_offline,
+    respond_course_overview,
     respond_smalltalk,
     retrieval_query,
 )
@@ -42,7 +43,7 @@ from app.api.schemas import (AssignmentGradeRequest, AssignmentTutorRequest, Cod
                              SubmissionAttachment, StudentProfileRequest, TeacherReviewRequest,
                              TeacherSubmissionReviewRequest)
 from app.core.config import settings
-from app.database.models import (AssignmentSubmission, CodeReview, Conversation, Document,
+from app.database.models import (AssignmentSubmission, CodeReview, Conversation, Document, DocumentAsset,
                                  LearningSummary, MaterialRevision, Slide, SlideVisual, StudentProfile)
 from app.database.session import get_db, init_db
 from app.knowledge.ingest import current_stats, import_course_zip
@@ -50,7 +51,7 @@ from app.knowledge.assignments import assignment_catalog, get_assignment
 from app.knowledge.uploaded_documents import import_uploaded_document
 from app.knowledge.vector import collection
 from app.knowledge.parser import MODULES
-from app.knowledge.search import search_course
+from app.knowledge.search import search_course, search_course_overview
 from app.knowledge.visual_ingest import import_slide_visuals
 
 
@@ -129,6 +130,36 @@ def _public_answer(answer: str) -> str:
 def _public_trace(trace: list[str]) -> list[str]:
     return [re.sub(r"(?:Qwen(?:3\.8-Flash)?|通义千问)", "AI 模型", step, flags=re.IGNORECASE)
             for step in trace]
+
+
+def _asks_general_concept(question: str) -> bool:
+    if re.search(r"课件|PPT|教材|手册|资料(?:中|里)|老师(?:说|要求)", question, re.IGNORECASE):
+        return False
+    return bool(re.search(r"全称|缩写|英文名|是什么意思|什么是|为什么|作用|用途|原理|区别", question))
+
+
+def _grounded_answer_lacks_answer(answer: str) -> bool:
+    return bool(re.search(r"未说明|未提供|未涉及|未提到|没有说明|没有提供|没有涉及|没有提到", answer))
+
+
+COURSE_TOPIC_PATTERN = re.compile(
+    r"物联网|课程|课件|PPT|实训|实验|作业|任务|验收|评分|代码|程序|编程|报错|"
+    r"传感器|采集|单片机|嵌入式|串口|接线|电路|开发|数据库|接口|云平台|服务器|"
+    r"网络|通信|协议|寄存器|仿真|登录|表单|部署|网页|前端|后端|"
+    r"Python|Flask|Android|Web|Java|C\+\+|HTML|CSS|JavaScript|SQLite|SQL|"
+    r"ESP\d+|STM32|ADAM|Modbus|RTU|CRC|RS-?485|GPIO|HTTP|API|TCP|UDP|MQTT|"
+    r"Arduino|Linux|Git|IDE|PLC",
+    re.IGNORECASE,
+)
+
+
+def _is_course_question(question: str, has_image: bool, previous: list[Conversation]) -> bool:
+    if COURSE_TOPIC_PATTERN.search(question):
+        return True
+    if has_image and not re.search(r"旅游|证件|购物|天气|娱乐|美食|明星|机场", question):
+        return True
+    is_followup = bool(re.search(r"这个|那个|它|上面|刚才|继续|接着|第二个|还有呢|呢[？?]?$", question))
+    return is_followup and any(COURSE_TOPIC_PATTERN.search(turn.question) for turn in previous)
 
 
 def _conversation_context(db: Session, session_id: str, student_key: str) -> list[Conversation]:
@@ -390,29 +421,18 @@ def grade_assignment(assignment_id: str, request: AssignmentGradeRequest,
         if not match:
             raise ValueError("模型返回内容不是可解析的评分 JSON")
         result = json.loads(match.group(0))
-        acceptance = float(result["acceptance_score"])
-        report_score = float(result["report_score"])
-        if not all(math.isfinite(score) and 0 <= score <= 100 for score in (acceptance, report_score)):
-            raise ValueError("模型评分超出有效范围")
         excluded_terms = ("环境搭建", "虚拟环境", "IDE安装", "IDE 安装", "依赖安装", "依赖配置", "项目目录", "目录结构", "软件安装")
         reviewed_items = []
-        removed_environment = False
         for item in result.get("acceptance_items", []):
             if not isinstance(item, dict):
                 continue
             criterion = str(item.get("criterion", ""))
             if any(term in criterion for term in excluded_terms):
-                removed_environment = True
                 continue
             reviewed_items.append(item)
-        if removed_environment:
-            result["acceptance_items"] = reviewed_items
-            scored = [(float(item.get("score", 0)), float(item.get("max_score", 0)))
-                      for item in reviewed_items]
-            if any(not math.isfinite(value) or value < 0 for pair in scored for value in pair):
-                raise ValueError("评分项分值无效")
-            total_possible = sum(max_points for _, max_points in scored)
-            acceptance = min(100.0, max(0.0, 100 * sum(min(score, max_points) for score, max_points in scored) / total_possible)) if total_possible else 0.0
+        result["acceptance_items"] = reviewed_items
+        acceptance = score_items_percent(reviewed_items, "现场验收")
+        report_score = score_items_percent(result.get("report_items"), "实验报告")
         for field in ("issues", "next_steps"):
             if isinstance(result.get(field), list):
                 result[field] = [item for item in result[field] if not any(term in str(item) for term in excluded_terms)]
@@ -609,6 +629,19 @@ def materials(db: Session = Depends(get_db)):
     } for item in documents]
 
 
+@app.get("/api/materials/{document_id}/assets/{asset_id}")
+def material_asset(document_id: int, asset_id: int, db: Session = Depends(get_db)):
+    asset = db.scalar(select(DocumentAsset).where(
+        DocumentAsset.id == asset_id, DocumentAsset.document_id == document_id))
+    if asset is None:
+        raise HTTPException(status_code=404, detail="课程资料图片不存在")
+    image_path = (settings.root / asset.storage_path).resolve()
+    if not image_path.is_relative_to(settings.material_upload_path.resolve()) or not image_path.is_file():
+        raise HTTPException(status_code=404, detail="课程资料图片文件不存在")
+    return FileResponse(image_path, media_type=asset.mime_type,
+                        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=86400, immutable"})
+
+
 @app.post("/api/materials/upload", dependencies=[Depends(_require_teacher)])
 async def upload_material(request: Request, filename: str, module: str, ocr: bool = False,
                           db: Session = Depends(get_db)):
@@ -651,16 +684,22 @@ def delete_uploaded_material(document_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="ZIP 课件请通过重新导入管理")
     ids = [item for item in collection().get(include=[])["ids"]
            if item.startswith(f"d{document.id}-")]
+    asset_paths = [(settings.root / item.storage_path).resolve() for item in db.scalars(
+        select(DocumentAsset).where(DocumentAsset.document_id == document.id)).all()]
     storage_path = (settings.root / document.storage_path).resolve() if document.storage_path else None
     slide_ids = select(Slide.id).where(Slide.document_id == document.id)
     db.execute(sql_delete(SlideVisual).where(SlideVisual.slide_id.in_(slide_ids)))
     db.execute(sql_delete(Slide).where(Slide.document_id == document.id))
+    db.execute(sql_delete(DocumentAsset).where(DocumentAsset.document_id == document.id))
     db.delete(document)
     db.commit()
     for start in range(0, len(ids), 500):
         collection().delete(ids=ids[start:start + 500])
     if storage_path and storage_path.is_relative_to(settings.material_upload_path.resolve()):
         storage_path.unlink(missing_ok=True)
+    for asset_path in asset_paths:
+        if asset_path.is_relative_to(settings.material_upload_path.resolve()):
+            asset_path.unlink(missing_ok=True)
     return {"deleted": True, "document_id": document_id}
 
 
@@ -966,7 +1005,9 @@ def chat(request: QuestionRequest, db: Session = Depends(get_db),
                 reused_previous_image = True
                 break
     smalltalk = respond_smalltalk(request.question)
-    selected_candidate = None if smalltalk else _clarification_choice(request.question, previous)
+    off_topic = smalltalk is None and not _is_course_question(
+        request.question, bool(model_image_data_url), previous)
+    selected_candidate = None if smalltalk or off_topic else _clarification_choice(request.question, previous)
     previous_question = previous[-1].question if previous else ""
     effective_question = request.question
     if smalltalk:
@@ -975,23 +1016,24 @@ def chat(request: QuestionRequest, db: Session = Depends(get_db),
         effective_question = (f"{previous_question} {selected_candidate.get('filename', '')} "
                               f"第{selected_candidate.get('slide_number', '')}"
                               f"{selected_candidate.get('unit_label', '页')} {request.question}")
-    elif previous and (len(request.question.strip()) <= 24 or any(
-        term in request.question for term in ("这个", "那个", "它", "上面", "继续", "GND", "接着")
-    )):
-        try:
-            prior_evidence = json.loads(previous[-1].evidence_json)
-        except (TypeError, json.JSONDecodeError):
-            prior_evidence = []
-        source_context = ""
-        if prior_evidence:
-            source_context = (f"{prior_evidence[0].get('filename', '')} "
-                              f"{prior_evidence[0].get('excerpt', '')[:500]}")
-        effective_question = f"{previous_question} {source_context} {request.question}"
+    elif previous and (any(
+        term in request.question for term in ("这个", "那个", "它", "上面", "继续", "接着", "刚才")
+    ) or (len(request.question.strip()) <= 12 and not re.search(
+        r"什么是|为什么|如何|怎么|哪些|是否|区别", request.question
+    ))):
+        # Carry the student's topic forward, not the previous retrieval result:
+        # an irrelevant candidate page must never become the next query's topic.
+        effective_question = f"{previous_question} {request.question}"
 
+    curriculum_overview = is_curriculum_overview_question(request.question, request.module)
     query = retrieval_query(effective_question, request.module)
     try:
-        evidence = ([] if smalltalk else
-                    [item for item in search_course(query, request.module, 5) if item["score"] >= 0.50])
+        if smalltalk or off_topic:
+            evidence = []
+        elif curriculum_overview:
+            evidence = search_course_overview(query, MODULES)
+        else:
+            evidence = [item for item in search_course(query, request.module, 5) if item["score"] >= 0.50]
     except Exception:
         # A retrieval/index issue should still produce a useful, honest assistant reply.
         evidence = []
@@ -1018,16 +1060,33 @@ def chat(request: QuestionRequest, db: Session = Depends(get_db),
                 "source_index": source_index,
                 "data_url": "data:image/png;base64," + base64.b64encode(image_path.read_bytes()).decode("ascii"),
             })
-    result = (smalltalk if not model_image_data_url else None) or respond_offline(effective_question, evidence)
+    smalltalk_handled = smalltalk is not None and not model_image_data_url
+    result = (AgentResult("course_qa",
+                          "我是《物联网综合实训课程》的助教，主要回答课程知识、实验、代码和任务问题。"
+                          "这个问题不在课程范围内；你可以换一个课程相关问题继续问我。",
+                          "out_of_scope", ["识别为课程范围之外的问题"]) if off_topic else
+              (smalltalk if smalltalk_handled else None) or
+              (respond_course_overview(evidence, MODULES) if curriculum_overview
+               else respond_offline(effective_question, evidence)))
+    if (not off_topic and not smalltalk_handled and settings.model_api_key and _asks_general_concept(request.question)
+            and re.search(r"全称|缩写|英文名", request.question)):
+        fallback = result.answer
+        if "rtu" in request.question.lower():
+            fallback = ("RTU 的全称是 Remote Terminal Unit（远程终端单元）。"
+                        "这是通用协议知识；本轮课件片段没有写出该英文全称。")
+        result = AgentResult(result.agent, fallback, "insufficient_evidence",
+                             result.trace + ["缩写全称问题交由 AI 通用知识回答"])
     if model_image_data_url and not settings.model_api_key:
         result = AgentResult(result.agent, result.answer + "\n\n当前未配置图像分析模型，无法识别你上传的图片。",
                              result.status, result.trace + ["图像分析未启用"])
-    mode = ("general" if result.status == "answered_general" else
+    mode = ("out_of_scope" if result.status == "out_of_scope" else
+            "general_knowledge" if result.status == "answered_basic" else
+            "general" if result.status == "answered_general" else
             "clarification" if result.status == "needs_clarification" else "offline_evidence")
     general_fallback_attempted = False
     if result.status == "answered_from_slides" and settings.model_api_key:
         try:
-            plan = plan_agents(effective_question)
+            plan = plan_agents(request.question)
             if model_image_data_url and len(plan) > 1:
                 # Keep the student's picture with the specialist answering this turn.
                 plan = ["experiment_guide"]
@@ -1041,7 +1100,7 @@ def chat(request: QuestionRequest, db: Session = Depends(get_db),
                     role_visuals = visual_inputs if role == "experiment_guide" else []
                     try:
                         drafts[role] = generate_grounded_answer(
-                            effective_question, request.module, evidence, role_visuals,
+                            request.question, request.module, evidence, role_visuals,
                             _recent_model_history(previous), role=role,
                         )
                         trace.append(("课程问答 Agent" if role == "course_qa" else "实验指导 Agent")
@@ -1069,27 +1128,33 @@ def chat(request: QuestionRequest, db: Session = Depends(get_db),
             else:
                 role = plan[0]
                 generated = generate_grounded_answer(
-                    effective_question, request.module, evidence, visual_inputs,
+                    request.question, request.module, evidence, visual_inputs,
                     _recent_model_history(previous), role=role,
                     user_image=model_image_data_url,
+                    curriculum_overview=curriculum_overview,
+                    curriculum_modules=MODULES if curriculum_overview else None,
                 )
                 trace.append(("实验指导 Agent" if role == "experiment_guide" else "课程问答 Agent")
                              + " 根据课件生成带编号引用的回答")
                 result = AgentResult(role, generated,
                                      "answered_with_vision" if visual_inputs or model_image_data_url else "answered_with_model", trace)
                 mode = "model_multimodal" if visual_inputs or model_image_data_url else "model_grounded"
+        except GroundingValidationError:
+            result = AgentResult(result.agent, result.answer, "answered_offline_fallback",
+                                 result.trace + ["AI 答复未通过引用或模块覆盖校验，已回退到本地课件整理"])
+            mode = "offline_fallback"
         except Exception:
             # Do not expose SDK exceptions: provider error text can include sensitive request details.
             result = AgentResult(result.agent, result.answer, "answered_offline_fallback",
                                  result.trace + ["AI 调用未成功，已回退到本地资料整理"])
             mode = "offline_fallback"
-    elif settings.model_api_key and result.status in {
-        "answered_general", "insufficient_evidence", "needs_clarification",
-    }:
+    elif (not smalltalk_handled and not curriculum_overview and settings.model_api_key and result.status in {
+        "answered_general", "answered_basic", "insufficient_evidence", "needs_clarification",
+    }):
         general_fallback_attempted = True
         try:
             generated = generate_general_answer(
-                effective_question, _recent_model_history(previous), evidence,
+                request.question, _recent_model_history(previous), evidence,
                 user_image=model_image_data_url,
             )
             result = AgentResult(
@@ -1108,6 +1173,21 @@ def chat(request: QuestionRequest, db: Session = Depends(get_db),
                 result.trace + ["AI 调用未成功，已回退到本地回复"],
             )
             mode = "offline_fallback"
+    if (settings.model_api_key and _asks_general_concept(request.question)
+            and result.status in {"answered_with_model", "answered_with_vision", "answered_with_collaboration"}
+            and _grounded_answer_lacks_answer(result.answer)):
+        try:
+            generated = generate_general_answer(
+                request.question, _recent_model_history(previous), evidence,
+                user_image=model_image_data_url,
+            )
+            result = AgentResult(result.agent, generated, "answered_with_model_general",
+                                 result.trace + ["课件未覆盖问题要点，使用 AI 通用知识补充回答"])
+            mode = "model_multimodal" if model_image_data_url else "model_general"
+            general_fallback_attempted = True
+        except Exception:
+            result = AgentResult(result.agent, result.answer, result.status,
+                                 result.trace + ["通用知识补充暂不可用，保留课件回答"])
     used_evidence = evidence if result.status in {
         "answered_from_slides", "answered_with_model", "answered_with_vision", "answered_offline_fallback",
         "needs_clarification", "answered_with_model_general", "answered_with_collaboration",
@@ -1292,7 +1372,11 @@ def conversations(limit: int = 20, session_id: str | None = None,
     limit = min(max(limit, 1), 100)
     statement = select(Conversation).where(Conversation.student_key == student_key)
     if session_id:
-        statement = statement.where(Conversation.session_id == session_id)
+        if session_id.startswith("legacy-") and session_id[7:].isdigit():
+            statement = statement.where(Conversation.id == int(session_id[7:]),
+                                       Conversation.session_id.is_(None))
+        else:
+            statement = statement.where(Conversation.session_id == session_id)
     records = db.scalars(statement.order_by(desc(Conversation.id)).limit(limit)).all()
     records.reverse()
     return [{"id": item.id, "question": item.question, "module": item.module,

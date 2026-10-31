@@ -1,0 +1,56 @@
+/* Semantic content styles for extracted course documents and fenced examples. */
+.assistant-bubble :is(p, ul, ol, blockquote, table, pre) { max-width: 100%; }
+.assistant-bubble pre,
+.assistant-bubble .copy-code-block pre,
+.assignment-manual-text pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 4;
+  font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
+}
+.assistant-bubble .copy-code-block pre { padding: 40px 14px 14px; border: 1px solid #e0eae7; background: #f2f7f5; color: #25474b; }
+.assistant-bubble .copy-code-block pre code,
+.assignment-manual-text pre code { display: block; min-width: max-content; padding: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; }
+.assignment-manual-text .copy-code-block pre { margin: 0; padding: 38px 15px 14px; border: 1px solid #e2ece9; border-radius: 10px; background: #f2f7f5; color: #25474b; font: 12.5px/1.7 Consolas, 'Cascadia Code', 'Courier New', monospace; }
+.assignment-manual-text .copy-code-block pre code { min-width: max-content; }
+.assignment-manual-text .copy-code-block { position: relative; max-width: 100%; margin: 12px 0 16px; }
+.assignment-manual-text .copy-code-button { position: absolute; top: 7px; right: 8px; z-index: 1; padding: 5px 9px; border: 1px solid #d7e5e1; border-radius: 7px; background: #fff; color: #356a68; font-size: 11px; }
+.assignment-manual-text .copy-code-button:hover { background: #e5f3ef; color: #0d7774; }
+.assignment-manual-text :is(h1, h2, h3, h4) { margin: 20px 0 8px; color: #23494c; line-height: 1.5; }
+.assignment-manual-text h1 { font-size: 20px; }
+.assignment-manual-text h2 { font-size: 17px; }
+.assignment-manual-text :is(h3, h4) { font-size: 15px; }
+.assignment-manual-text :is(h1, h2, h3, h4):first-child { margin-top: 0; }
+.assignment-manual-text p { margin: 9px 0; }
+.assignment-manual-text :is(ul, ol) { padding-left: 23px; }
+.assignment-manual-text li { margin: 5px 0; padding-left: 3px; }
+.assignment-manual-text blockquote,
+.assistant-bubble blockquote { padding: 8px 13px; border-left: 3px solid #80b7ad; border-radius: 0 8px 8px 0; background: #f1f7f5; color: #536f70; }
+.assignment-manual-text table,
+.assistant-bubble table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.assignment-manual-text :is(th, td),
+.assistant-bubble :is(th, td) { min-width: 90px; padding: 8px 10px; border: 1px solid #dce8e6; text-align: left; vertical-align: top; }
+.assignment-manual-text th,
+.assistant-bubble th { background: #eaf3f1; color: #275359; font-weight: 650; }
+.assignment-manual-text :not(pre) > code { white-space: break-spaces; overflow-wrap: anywhere; }
+.assistant-bubble .hljs-comment, .assignment-manual-text .hljs-comment,
+.assistant-bubble .hljs-quote, .assignment-manual-text .hljs-quote { color: #728c81; font-style: italic; }
+.assistant-bubble .hljs-keyword, .assignment-manual-text .hljs-keyword,
+.assistant-bubble .hljs-selector-tag, .assignment-manual-text .hljs-selector-tag,
+.assistant-bubble .hljs-literal, .assignment-manual-text .hljs-literal { color: #087a73; font-weight: 600; }
+.assistant-bubble .hljs-string, .assignment-manual-text .hljs-string,
+.assistant-bubble .hljs-doctag, .assignment-manual-text .hljs-doctag { color: #9a6a3f; }
+.assistant-bubble .hljs-number, .assignment-manual-text .hljs-number,
+.assistant-bubble .hljs-attr, .assignment-manual-text .hljs-attr { color: #557e9a; }
+.assistant-bubble .hljs-title, .assignment-manual-text .hljs-title,
+.assistant-bubble .hljs-function, .assignment-manual-text .hljs-function,
+.assistant-bubble .hljs-built_in, .assignment-manual-text .hljs-built_in { color: #276b85; }
+.assistant-bubble .hljs-meta, .assignment-manual-text .hljs-meta,
+.assistant-bubble .hljs-variable, .assignment-manual-text .hljs-variable { color: #785d9b; }
+@media (max-width: 600px) {
+  .assignment-manual-text { font-size: 14px; }
+  .assignment-manual-text pre { font-size: 12px; }
+}
