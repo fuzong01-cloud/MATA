@@ -1,108 +1,107 @@
-# 《物联网综合实训课程》多智能体协同助教系统
+# 物联网综合实训课程多智能体协同助教系统
 
-本仓库按照开题报告建设本机演示版。课程资料、对话、代码分析记录、学习回顾与教师审核均使用 SQLite。本机演示知识库包含 44 份 PPT（628 页）、88 份 DOCX（指导手册、题库、课程讲义、实操脚本、任务说明、报告模板与评分标准）；628 页 PPT 均已建立文字与页面图像索引。已将根目录 `任务.pptx` 纳入跨模块任务资料，并以修改版第 4 讲替换旧版；尚未进行论文中的单 Agent／多 Agent 对比实验。课程原始文件、索引、数据库和上传内容不随代码仓库发布。
+面向物联网综合实训课程的本机演示系统。学生可依据课程资料提问、分析代码、完成任务验收并查看学习回顾；教师可管理资料、查看学习活动、编辑任务要求、复核提交和下载作品。前端使用 Vue 3 + Vite，后端使用 FastAPI + SQLAlchemy，默认使用 SQLite。
 
-## 已实现
+> 项目代码可以公开阅读；课程原始资料、索引、学生提交、数据库和密钥不包含在仓库中。克隆后需要自行提供课程资料和模型配置。当前是教学演示项目，没有正式账号体系，不适合直接部署到公网。
 
-- 从课程资料 ZIP 导入 PPTX，保留课程模块、文件名、页码与每页提取状态（文字、空白、部分提取、失败）
-- 按资料路径、模块、资料类别与课次整理课程脚本和补充文档；任务类检索会优先参考实操脚本与课程任务布置，模块检索同时包含通用课程任务
-- 教师端可额外上传 PDF、DOCX；PDF 按真实页码、Word 按可追溯的文字片段建立索引。上传扫描 PDF 时可选用模型识别图片页文字，每次最多 20 页
-- 同模块同名的教师上传资料更新后替换旧版及其向量索引，记录版本哈希变更；内容未变化时跳过重复处理。更新记录保留版本信息，不保留旧文件副本
-- 使用本地 `BAAI/bge-small-zh-v1.5` 中文向量模型和 SQLite 向量表建立精确余弦检索索引
-- 问题识别与调度：普通问题交由课程问答或实验指导 Agent；同时涉及原理和操作的问题分别调用两者，再由结果校验模块整合。调用过程保存在对话记录中
-- 课程资料优先问答；证据不足时使用模型通用知识继续分析，课件候选页会与已确认依据区分。模型不可用时回退本地整理
-- PPT 完整页面图像索引，以及学生现场图片上传。视觉问题可结合关联 PPT 页图像、学生图片和文字回答；图片随对话保存在本机，删除对话时清理
-- 代码分析 Agent：Python 本地 AST 语法检查；Python、C、C++、Java、JavaScript、HTML、CSS 可用模型做静态阅读分析。代码不会运行或编译
-- 学习评价 Agent：根据对话与代码检查记录生成过程性学习回顾，不输出正式成绩
-- Vue 学生端：多轮对话、模块筛选、课件来源与弹窗预览、删除对话、代码分析、学习回顾
-- 教师工作台：课件统计、资料导入、最近回答审核，以及任务提交的原文与附件复核、教师意见和最终分数
-- 学生可登记姓名、学号和班级；同一浏览器后续提问、代码分析、任务提交与学习回顾按学生标识归集。教师端可按班级、模块和日期查看活动、任务提交及学生进度
-- 学生“学习回顾”页汇总跨对话的提问、代码分析、模块活动和已提交任务的最新结果
-- 教师资料管理、图像索引与回答审核使用访问码保护；资料列表显示内容哈希版本和导入日期
-- 代码分析可自动识别常见语言并关联课程模块；Python 额外提取函数、类、赋值变量与调用的静态结构
-- SQLite 数据库；此阶段不依赖 MySQL
+## 功能概览
 
-## 环境与启动
+| 区域 | 功能 |
+| --- | --- |
+| 课程问答 | 按模块检索 PPT、Word、PDF；课程问答与实验指导协同；显示依据、调用过程和课件页面预览；可结合现场图片提问 |
+| 代码分析 | 自动识别常见语言，Python 本地语法检查，模型静态分析与追问；不执行学生代码 |
+| 任务验收 | 从指导手册提取任务要求、表格、配图和评分点；提供对应报告模板；上传作品、代码、运行证据和报告；AI 给出作品 70% + 报告 30% 的初评 |
+| 学生记录 | 按浏览器学生标识保存对话、代码分析、任务提交与学习回顾；可查看 AI 评分、教师复核和历史提交 |
+| 教师作业管理 | 查看全部任务与提交统计，按任务、班级、学生、日期和复核状态筛选；查看原文、附件、AI 明细；分别下载作品、报告或整次提交；填写意见与最终分数；删除所选提交 |
+| 任务版本 | 教师编辑任务要求和评分标准时生成新版本；新提交使用新版本，旧提交保存当时的任务快照；学生修订和教师复核保留历史记录 |
+| 学情分析与资料管理 | 按班级、模块和日期统计学习活动；最近提交提供作业管理入口；导入 PPTX、DOCX、PDF，建立可检索文字和 PPT 页面图像索引 |
 
-使用 Python 3.12、Node.js 20+。在项目根目录执行：
+任务数由已导入的指导手册决定。本机演示资料当前提取出 38 个任务；全新仓库在未导入资料时不会自动出现这些任务。报告模板也来自导入的 Word 原件，不在本仓库发布。
+
+## 快速开始
+
+要求 Python 3.12、Node.js 20+、npm。Windows 是主要演示环境；完整 PPT 页面渲染需要本机 Microsoft PowerPoint。其他平台仍可使用文字资料检索和不依赖 PowerPoint 的功能。
 
 ```powershell
+git clone https://github.com/fuzong01-cloud/MATA.git
+cd MATA
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
 cd frontend
-npm install
+npm ci
 cd ..
 ```
 
-可复制 `.env.example` 为 `.env` 修改课程 ZIP、原始资料目录和数据库路径。首次建立索引时会下载约 90 MB 的本地 Embedding 模型；之后可以离线运行。PPT 下载与页面图像重建依赖 `.env` 中配置的课程 ZIP。
-
-所有需要模型处理的请求统一使用通义千问 `qwen3.8-flash`（由 `QWEN_MODEL` 配置）。配置项位于 `.env`：`QWEN_API_KEY`、`QWEN_BASE_URL` 和 `QWEN_MODEL`。简单问候由本地直接回复，不调用模型。`.env` 已被 Git 忽略。模型调用可能发送当前问题、代码、学生上传的图片和相关课程资料，并产生 API 用量；不要提交真实密钥或在代码分析区粘贴敏感凭据。未配置模型时保留本地检索与 Python 语法检查。
-
-教师工作台使用 `.env` 中的 `TEACHER_ACCESS_CODE`。当前本机配置已生成独立访问码；打开教师工作台时输入该值。`MEDIA_SIGNING_KEY` 用于保护学生上传图片的访问链接。学生在“我的信息”登记后，新学习记录按班级归集，最近对话、代码检查、作业提交和学习回顾按浏览器标识隔离。学生标识保存在浏览器本地，换浏览器需要重新登记。本机演示尚未提供正式账号登录与密码找回机制。
-
-在 Windows 安装了 Microsoft PowerPoint 的电脑上，进入学生端点击“建立 PPT 页面图像索引”。系统会通过 PowerPoint 将完整幻灯片渲染成 PNG，包含图片以及 PPT 原生绘制的图形、流程图和接线图，文件保存在 `knowledge_base/processed/slide_images/`。页面预览可从资料依据中打开。用户提问涉及“图中”“接线图”“流程图”等视觉内容时，最多选取 2 张已检索页面图像和对应资料文字交给当前启用的模型；普通文字问题只发送检索文字。图像不会在导入时批量发送给模型。视觉问答会产生模型 API 用量。
-
-将原始资料放到 `COURSE_MATERIALS_DIR` 指定的目录，再重建 PPT、DOCX 和任务资料索引：
+在 `.env` 中至少配置 `TEACHER_ACCESS_CODE` 和 `MEDIA_SIGNING_KEY`。要使用 AI 问答、代码分析和任务评分，还需配置 `QWEN_API_KEY`。课程资料在 `.env` 的 `COURSE_MATERIALS_DIR` 指定目录中准备好后，运行：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\import_course_materials.py
 ```
 
-脚本会排除被 `-4改.pptx` 替代的旧 `-4.pptx`，将资料根目录的 `任务.pptx` 作为通用课程任务打包，并重新处理全部 Word 文档。逐课资料会保留模块、资料类别、课次和原始相对路径等检索元数据。完成后可在教师端使用“建立 PPT 页面图像索引”或执行 `scripts\import_visuals.py`。
-
-启动后端：
+分别在两个终端启动：
 
 ```powershell
 .\.venv\Scripts\python.exe backend\run.py
 ```
-
-另开终端启动前端：
 
 ```powershell
 cd frontend
 npm run dev
 ```
 
-访问 `http://127.0.0.1:5173`。接口文档位于 `http://127.0.0.1:8001/docs`。后端默认使用 8001 端口（可通过 `BACKEND_PORT` 修改），避开当前常见的 8000 端口冲突。
+浏览器打开 <http://127.0.0.1:5173>，API 文档位于 <http://127.0.0.1:8001/docs>。Vite 会将 `/api` 请求转发至后端。首次使用本地向量模型时会下载模型文件，时间取决于网络。
 
-## 核心接口
+Linux/macOS 可用 `python3.12 -m venv .venv`、`.venv/bin/python` 代替 Windows 的 Python 命令。PPT 图像渲染需要另行适配，不能照搬 Windows PowerPoint 流程。
 
-| 接口 | 用途 |
+详细操作见 [使用说明](docs/user-guide.md)，模块、数据与接口见 [技术说明](docs/architecture.md)。
+
+## 配置
+
+| 配置项 | 作用 |
 | --- | --- |
-| `POST /api/materials/import` | 从配置的 ZIP 导入课程 PPT |
-| `POST /api/materials/upload` | 上传 PDF/DOCX 并增量建立索引，保留原始文件 |
-| `DELETE /api/materials/{id}` | 删除上传的补充资料及索引 |
-| `POST /api/knowledge/visuals/import` | 用本机 PowerPoint 建立各页图像索引 |
-| `GET /api/materials` | 查看已导入资料 |
-| `GET /api/materials/{id}/slides/{page}` | 查看原始页的文字和状态 |
-| `GET /api/materials/{id}/slides/{page}/image` | 获取该页 PNG 预览 |
-| `GET /api/materials/{id}/download` | 下载原始 PPT |
-| `POST /api/knowledge/search` | 按问题和模块检索课件 |
-| `POST /api/chat` | 多轮问答与学生图片分析；响应包含 Agent 调度过程、依据和回答方式 |
-| `POST /api/code/analyze` | 自动识别语言、Python 本地语法与结构检查及 AI 静态代码分析 |
-| `GET /api/code/reviews` | 查看本段会话的代码分析记录 |
-| `POST /api/learning/summary` | 生成过程性学习回顾 |
-| `GET /api/learning/summaries/{session_id}` | 查看学习回顾记录 |
-| `GET /api/conversations` | 查看提问与调用记录 |
-| `GET /api/conversations/sessions` | 查看会话列表 |
-| `DELETE /api/conversations/{session_id}` | 删除会话、相关图片与学习记录 |
-| `GET /api/teacher/overview` | 教师演示统计与最近回答 |
-| `POST /api/teacher/reviews/{conversation_id}` | 保存教师审核状态和备注 |
-| `GET /api/teacher/submissions/{id}` | 查看提交原文、附件和 AI 初评 |
-| `POST /api/teacher/submissions/{id}/review` | 保存教师复核、意见与最终分数 |
-| `GET /api/submission-files/{id}/{index}` | 学生本人或教师下载提交附件 |
-| `GET/PUT /api/student/profile` | 读取或登记当前浏览器对应的学生信息 |
-| `GET /api/student/progress` | 查看当前学生的跨对话学习与任务进度 |
-| `GET /api/teacher/analytics` | 按班级、模块、日期查询学习活动与任务进度 |
+| `DATABASE_URL` | SQLAlchemy 数据库连接，默认 SQLite 文件 |
+| `COURSE_ZIP` | PPT 课程资料 ZIP 路径 |
+| `COURSE_MATERIALS_DIR` | 原始资料目录，供导入脚本读取 |
+| `EMBEDDING_MODEL` | 本地中文向量模型，默认 `BAAI/bge-small-zh-v1.5` |
+| `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL` | 通义千问兼容接口配置 |
+| `TEACHER_ACCESS_CODE` | 教师工作台及教师接口访问码 |
+| `MEDIA_SIGNING_KEY` | 学生上传图片链接签名密钥 |
+| `FRONTEND_ORIGIN` / `BACKEND_PORT` | 前端来源及后端监听端口 |
 
-`/api/chat` 的请求示例：
+`.env.example` 只有示例值；不要把真实 `.env`、学生资料或课程原件提交到 GitHub。模型请求可能包含当前问题、代码、上传图片及相关课程资料，并产生 API 用量。
 
-```json
-{"question":"ADAM-4017 的 Vin0+ 连接什么？","module":"虚拟仿真"}
+## 常用命令
+
+```powershell
+# 导入课程原始资料
+.\.venv\Scripts\python.exe scripts\import_course_materials.py
+
+# 在已安装 PowerPoint 的 Windows 上建立 PPT 页面图像索引
+.\.venv\Scripts\python.exe scripts\import_visuals.py
+
+# 构建前端
+cd frontend
+npm run build
 ```
 
-返回内容包含 `answer`、`agent`、`status`、`trace`、`mode` 和 `evidence`。每条证据包含 `filename`、`slide_number`、`excerpt`、`score` 和原始 PPT 下载地址。
+## 项目结构
 
-## 范围说明
+```text
+backend/app/agents/       问答调度、模型调用、离线回退
+backend/app/api/          请求与响应结构
+backend/app/database/     SQLAlchemy 模型、连接与轻量迁移
+backend/app/knowledge/    资料解析、索引、检索、任务提取
+backend/app/main.py       FastAPI 路由与业务流程
+frontend/src/             Vue 界面、文档渲染与样式
+scripts/                  课程资料及页面图像导入
+tests/                    后端测试
+frontend/test/            文档渲染测试
+docs/                     使用说明、技术说明、界面设计
+```
 
-当前导入了所提供的 PPT 与 Word 课程资料。Word 的“片段”并非原始页码，扫描 PDF 图片页识别需教师主动勾选并调用已配置模型，低清图片仍需人工核对。代码静态分析不等同于编译或运行。学习回顾不代替教师评分。教师端访问码适用于本机演示，学生标识不是正式账号权限系统，不应直接发布到公网。课程资料、学生图片和模型输出均是数据，不作为系统指令执行；模型思考内容不会展示或保存。
+## 数据与适用范围
+
+默认数据库、索引、上传文件、课程原件和 `.env` 都在 `.gitignore` 中。教师删除一条提交后，学生和教师界面均不再显示该条记录；为保留审计线索，数据库中的记录和附件不会立刻物理销毁。学生主动删除自己的提交只会从学生列表隐藏，教师仍可查看。
+
+AI 评分是学习反馈，不是正式成绩。代码分析只做静态阅读；截图和代码无法证明实际硬件或运行效果。教师访问码与浏览器学生标识只适合本机演示，公开部署需要正式身份认证、权限控制、文件扫描和备份策略。

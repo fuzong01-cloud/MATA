@@ -605,6 +605,14 @@ input, textarea, select {
 .assignment-detail-page .assignment-manual-text .copy-code-button { position: absolute; top: 7px; right: 8px; z-index: 1; padding: 5px 9px; border: 1px solid #d7e5e1; border-radius: 7px; background: #fff; color: #356a68; font-size: 11px; }
 .assignment-detail-page .assignment-manual-text .copy-code-button:hover { background: #e5f3ef; color: #0d7774; }
 .assignment-detail-page .assignment-manual-text table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 12px; }
+.assignment-manual-images { display: grid; gap: 16px; margin: 18px 0 4px; }
+.assignment-manual-images figure { margin: 0; padding: 12px; border: 1px solid #dce8e6; border-radius: 10px; background: #f8fbfa; }
+.assignment-image-trigger { display: block; max-width: 100%; padding: 0; border: 0; border-radius: 5px; background: transparent; cursor: zoom-in; }
+.assignment-manual-images img { display: block; max-width: 100%; height: auto; border-radius: 5px; }
+.assignment-manual-images figcaption { margin-top: 8px; color: #647e7e; font-size: 12px; }
+.assignment-image-modal { width: min(1200px, 96vw); }
+.assignment-image-modal .slide-modal-body { display: grid; place-items: center; min-height: 0; }
+.assignment-image-modal .slide-preview { width: auto; max-width: 100%; max-height: calc(92vh - 100px); }
 .assignment-detail-page .assignment-manual-text :is(th, td) { padding: 7px 9px; border: 1px solid #dce8e6; text-align: left; vertical-align: top; }
 .assignment-detail-page .assignment-manual-text blockquote { margin: 12px 0; padding: 8px 13px; border-left: 3px solid #80b7ad; border-radius: 0 8px 8px 0; background: #f1f7f5; color: #536f70; }
 .assignment-detail-page .assignment-manual-text .hljs-comment, .assignment-detail-page .assignment-manual-text .hljs-quote { color: #728c81; font-style: italic; }
@@ -630,6 +638,9 @@ input, textarea, select {
 .assignment-detail-page .assignment-submit { display: grid; gap: 14px; margin: 0; padding: 0; border: 0; }
 .assignment-form-block + .assignment-form-block { padding-top: 14px; border-top: 1px solid #e8efed; }
 .assignment-form-block h3 { margin: 0 0 10px; color: #31575a; font-size: 13px; font-weight: 700; }
+.assignment-template-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 10px 11px; border: 1px solid #cde2dd; border-radius: 8px; background: #f1f8f5; color: #0d7774; font-size: 11px; font-weight: 700; }
+.assignment-template-link:hover { background: #e6f3ee; }
+.assignment-template-link small { min-width: 0; color: #64847f; font-size: 10px; font-weight: 400; text-align: right; overflow-wrap: anywhere; }
 .assignment-detail-page .assignment-submit label { display: grid; gap: 7px; margin: 0; color: #516d70; font-size: 11px; font-weight: 650; }
 .assignment-detail-page .assignment-submit textarea, .assignment-detail-page .assignment-tutor-composer textarea { display: block; width: 100%; min-height: 88px; margin: 0; padding: 10px 11px; border: 1px solid #d7e4e2; border-radius: 8px; background: #fbfdfc; color: var(--wb-ink); font: inherit; font-size: 12px; line-height: 1.65; resize: vertical; }
 .assignment-detail-page .assignment-submit textarea:focus, .assignment-detail-page .assignment-tutor-composer textarea:focus { border-color: #8dbeb7; box-shadow: 0 0 0 2px #e6f1ee; outline: 0; }
@@ -737,6 +748,45 @@ input, textarea, select {
 .teacher-section-heading { border-bottom-color: var(--wb-line); }
 .teacher-stats>div { border-color: var(--wb-line); border-radius: 7px; background: var(--wb-panel); box-shadow: none; }
 .teacher-materials, .teacher-question-list, .teacher-review-detail { border-color: var(--wb-line); background: var(--wb-panel); box-shadow: none; }
+.teacher-assignment-filters, .teacher-submission-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.teacher-submission-filters { grid-template-columns: repeat(5, minmax(130px, 1fr)); }
+.teacher-assignment-filters label, .teacher-submission-filters label, .teacher-task-edit label { display: flex; flex-direction: column; gap: 6px; color: var(--wb-muted); font-size: 12px; font-weight: 650; }
+.teacher-assignment-filters input, .teacher-submission-filters input, .teacher-task-edit input, .teacher-task-edit textarea { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--wb-line); border-radius: 6px; background: #fff; color: var(--wb-ink); font: inherit; }
+.teacher-assignment-grid { display: grid; grid-template-columns: minmax(250px, 30%) minmax(0, 1fr); gap: 14px; align-items: start; }
+.teacher-task-list, .teacher-task-detail, .teacher-submission-list { min-width: 0; border: 1px solid var(--wb-line); border-radius: 8px; background: #fff; }
+.teacher-task-list { max-height: 540px; overflow-y: auto; }
+.teacher-task-list button, .teacher-submission-list button { display: flex; width: 100%; flex-direction: column; gap: 5px; padding: 13px 15px; border: 0; border-bottom: 1px solid var(--wb-line); background: transparent; color: var(--wb-ink); text-align: left; }
+.teacher-task-list button:hover, .teacher-submission-list button:hover { background: #f4f9f7; }
+.teacher-task-list button.active, .teacher-submission-list button.active { background: #e8f3f0; box-shadow: inset 3px 0 var(--wb-teal); }
+.teacher-task-list small, .teacher-submission-list small, .teacher-task-detail small { color: var(--wb-muted); line-height: 1.5; }
+.teacher-task-detail { min-height: 240px; max-height: 540px; overflow: auto; padding: 20px; }
+.teacher-task-detail-heading, .teacher-submission-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.teacher-task-detail-heading h3 { margin: 5px 0 16px; }
+.teacher-task-detail h4 { margin: 16px 0 8px; }
+.teacher-task-detail .assignment-manual-text { max-width: none; overflow-wrap: anywhere; line-height: 1.75; }
+.teacher-task-edit { display: grid; gap: 14px; }
+.teacher-task-edit textarea { resize: vertical; line-height: 1.6; }
+.teacher-task-versions { margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--wb-line); }
+.teacher-task-versions > div { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--wb-line); }
+.teacher-task-versions pre, .teacher-submission-review pre { max-height: 340px; overflow: auto; padding: 12px; border-radius: 6px; background: #f5f8f7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.teacher-submission-heading { margin-top: 30px; }
+.teacher-submission-list { max-height: 360px; overflow-y: auto; }
+.teacher-submission-list button { flex-direction: row; justify-content: space-between; gap: 20px; }
+.teacher-submission-list button span { display: grid; gap: 4px; min-width: 0; }
+.teacher-submission-list button span:last-child { text-align: right; }
+.teacher-assignment-empty { margin: 0; padding: 20px; color: var(--wb-muted); }
+.teacher-submission-review { margin-top: 18px; padding: 20px; }
+.teacher-submission-downloads { display: flex; flex-wrap: wrap; gap: 8px; margin: 15px 0; }
+.teacher-submission-review > details { margin: 14px 0; }
+.teacher-submission-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.assignment-result-banner { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 20px; padding: 18px 22px; border: 1px solid #afd5cf; border-radius: 9px; background: #eaf6f2; color: var(--wb-ink); }
+.assignment-result-banner > div { display: grid; gap: 4px; }
+.assignment-result-banner span { color: var(--wb-muted); font-size: 12px; font-weight: 650; }
+.assignment-result-banner strong { color: var(--wb-teal); font-size: 28px; line-height: 1.2; }
+.assignment-result-banner small { color: var(--wb-muted); }
+@media (max-width: 620px) { .assignment-result-banner { align-items: stretch; flex-direction: column; } }
+@media (max-width: 900px) { .teacher-submission-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .teacher-assignment-grid { grid-template-columns: 1fr; } .teacher-task-list { max-height: 260px; } .teacher-task-detail { max-height: none; } }
+@media (max-width: 620px) { .teacher-subnav { overflow-x: auto; } .teacher-subnav button { flex: 0 0 auto; } .teacher-assignment-filters, .teacher-submission-filters { grid-template-columns: 1fr; } .teacher-submission-list button { flex-direction: column; } .teacher-submission-list button span:last-child { text-align: left; } }
 
 /* Shared, deliberately quiet motion for real content changes. */
 .page-enter-active, .page-leave-active {

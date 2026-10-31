@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import re
+import zipfile
+import xml.etree.ElementTree as ET
+from functools import lru_cache
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database.models import Document, Slide
+from app.database.models import AssignmentVersion, Document, Slide
+from app.core.config import settings
 from app.knowledge.parser import restore_legacy_slash_code
 
 
@@ -16,11 +20,17 @@ MANUALS = {
     180: ("Web开发", "WEB开发模块指导手册.docx"),
     181: ("嵌入式开发", "指导手册书(嵌入式、虚拟仿真、APP).docx"),
 }
+REPORT_TEMPLATES = {
+    "嵌入式开发": "嵌入式开发实训报告模板.docx",
+    "Web开发": "应用端开发实训报告模板.docx",
+    "Android开发": "应用端开发实训报告模板.docx",
+    "虚拟仿真": "虚拟仿真实训报告模板.docx",
+}
 
 
 _C_CODE_LINE = re.compile(
     r"^\s*(?:#(?:include|define|ifdef|ifndef|endif|if|else|pragma)\b.*|"
-    r"//.*|/\*.*|\*/|(?:extern\s+|static\s+|const\s+|volatile\s+)*(?:void|int|char|float|double|uint\w+_t|GPIO_\w+|RCC_\w+)\s+[*\w]+\s*(?:\[[^\]]*\]\s*)?(?:[=;(,\[]|$).*|"
+    r"//.*|/\*.*|\*/|(?:extern\s+|static\s+|const\s+|volatile\s+)*(?:(?:unsigned|signed)\s+)*(?:void|int|char|float|double|uint\w+_t|GPIO_\w+|RCC_\w+)\s+[*\w]+\s*(?:\[[^\]]*\]\s*)?(?:[=;(,\[]|$).*|"
     r"(?:if|else|for|while|switch|case|default|return|break|continue)\b.*|"
     r"[A-Za-z_]\w*(?:\s*\[[^\]]+\])?\s*(?:=|\+=|-=)\s*.+;\s*(?://.*)?$|"
     r"[A-Za-z_]\w*(?:\s*\[[^\]]+\])?\s*(?:\+\+|--)\s*;?\s*(?://.*)?$|"
@@ -45,13 +55,17 @@ _CSS_CODE_LINE = re.compile(
 def _is_embedded_code_line(line: str, previous: str = "") -> bool:
     if _C_CODE_LINE.match(line):
         return True
+    # The manual shows generated LCD glyphs as bare hexadecimal rows before
+    # introducing their C declarations. Keep those rows with their comments.
+    if re.match(r"^\s*\{\s*0[xX][\da-fA-F]+(?:\s*,\s*0[xX][\da-fA-F]+){2,}\s*\}\s*,?\s*(?:/\*.*\*/)?\s*$", line):
+        return True
     if re.match(r"^\s*[A-Za-z_]\w*\s*\([^)]*\)\s*;\s*(?://.*)?$", line):
         return True
     if re.match(r"^\s*[A-Za-z_]\w*(?:\s*\[[^\]]+\])?\s*=\s*.+(?:;|//.*)$", line):
         return True
     if re.match(r"^\s*[A-Za-z_]\w*(?:\s*\[[^\]]+\])?\s*(?:\+\+|--)\s*;?\s*(?://.*)?$", line):
         return True
-    if previous.rstrip().endswith(("\\", ",")) and re.match(r"^\s*[A-Za-z_]\w*", line):
+    if previous.rstrip().endswith(("\\", ",")) and re.match(r"^\s*(?:[A-Za-z_]\w*|0[xX][\da-fA-F]+)", line):
         return True
     return bool(re.match(r"^\s*(?:STM32_|GPIO_|RCC_|HAL_|TIM\d|LCD_|IIC\d?_?|NVIC_|Buzzer_|delay_ms|SMGSONGXIAN)\w*\s*\(", line))
 
@@ -99,7 +113,7 @@ def _strip_legacy_c_fences(lines: list[str]) -> list[str]:
     def is_c_region(start: int, end: int) -> bool:
         body = [line for line in lines[start:end] if line.strip()]
         candidates = [line for line in body if _C_CODE_LINE.match(line)]
-        anchors = sum(bool(re.match(r"^\s*(?:#(?:include|define)|(?:void|int|char|uint\w+_t)\b)", line, re.IGNORECASE)) for line in body)
+        anchors = sum(bool(re.match(r"^\s*(?:#(?:include|define)|(?:(?:unsigned|signed)\s+)*(?:void|int|char|uint\w+_t)\b)", line, re.IGNORECASE)) for line in body)
         return len(candidates) >= 3 and anchors >= 1 and len(candidates) / len(body) >= 0.5
 
     for index, line in enumerate(lines):
@@ -328,6 +342,73 @@ def _extract_range(lines: list[str], start: int, end: int, prefix: str,
     return found
 
 
+@lru_cache(maxsize=8)
+def _manual_image_positions(path: str, modified_ns: int) -> list[tuple[str, list[dict]]]:
+    """Read paragraph text, images and display sizes in Word document order."""
+    namespaces = {
+        "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    }
+    with zipfile.ZipFile(path) as archive:
+        root = ET.fromstring(archive.read("word/document.xml"))
+    return [
+        (
+            "".join(node.text or "" for node in paragraph.findall(".//w:t", namespaces)).strip(),
+            [
+                {
+                    "id": blip.get(f"{{{namespaces['r']}}}embed"),
+                    "width": max(1, round(int(extent.get("cx")) / 9525)),
+                    "height": max(1, round(int(extent.get("cy")) / 9525)),
+                }
+                for drawing in paragraph.findall(".//w:drawing", namespaces)
+                for extent in [drawing.find(".//wp:extent", namespaces)]
+                for blip in drawing.findall(".//a:blip", namespaces)
+                if extent is not None and extent.get("cx", "").isdigit()
+                and extent.get("cy", "").isdigit() and blip.get(f"{{{namespaces['r']}}}embed")
+            ],
+        )
+        for paragraph in root.findall(".//w:body//w:p", namespaces)
+    ]
+
+
+def _attach_manual_images(items: list[dict], documents: list[Document]) -> None:
+    for document in documents:
+        related = [item for item in items if item["source"] == document.filename]
+        path = (settings.root / document.storage_path).resolve() if document.storage_path else None
+        if not path or not path.is_relative_to(settings.material_upload_path.resolve()) or not path.is_file():
+            continue
+        try:
+            paragraphs = _manual_image_positions(str(path), path.stat().st_mtime_ns)
+        except (OSError, KeyError, ValueError, ET.ParseError, zipfile.BadZipFile):
+            continue
+        positions = []
+        previous = -1
+        for item in related:
+            matches = [index for index, (text, _) in enumerate(paragraphs)
+                       if index > previous and text == item["title"]]
+            if not matches:
+                positions.append(None)
+                continue
+            previous = matches[0]
+            positions.append(previous)
+        for index, item in enumerate(related):
+            start = positions[index]
+            if start is None:
+                continue
+            stop = next((position for position in positions[index + 1:] if position is not None), len(paragraphs))
+            if item["id"] == "embedded-17":
+                stop = next((position for position in range(start + 1, stop)
+                             if paragraphs[position][0].startswith("附录1")), stop)
+            images = list({image["id"]: image for _, group in paragraphs[start:stop]
+                           for image in group}.values())
+            item["images"] = [{"url": f"/api/assignments/{item['id']}/images/{image['id']}",
+                               "alt": f"{item['title']} 配图 {number}",
+                               "width": image["width"], "height": image["height"]}
+                              for number, image in enumerate(images, 1)]
+
+
 def assignment_catalog(db: Session) -> list[dict]:
     web_doc = db.scalar(select(Document).where(Document.filename == "WEB开发模块指导手册.docx"))
     guide_doc = db.scalar(select(Document).where(
@@ -363,6 +444,30 @@ def assignment_catalog(db: Session) -> list[dict]:
     items += _extract_range(guide, embedded_start, code_appendix, "embedded", "嵌入式开发", guide_doc.filename)
     items += _extract_range(guide, simulation_start, app_start, "simulation", "虚拟仿真", guide_doc.filename)
     items += _extract_range(guide, app_start, len(guide), "android-app", "Android开发", guide_doc.filename)
+    _attach_manual_images(items, [web_doc, guide_doc])
+    templates = {document.filename: document for document in db.scalars(
+        select(Document).where(Document.filename.in_(REPORT_TEMPLATES.values()),
+                               Document.source_type == "docx"))}
+    for item in items:
+        name = REPORT_TEMPLATES[item["module"]]
+        template = templates.get(name)
+        if template:
+            item["report_template"] = {
+                "name": "Web开发实训报告模板.docx" if item["module"] == "Web开发" else name,
+                "document_id": template.id,
+                "url": f"/api/assignments/{item['id']}/report-template",
+            }
+    latest_versions = {}
+    for version in db.scalars(select(AssignmentVersion).order_by(AssignmentVersion.version)):
+        latest_versions[version.assignment_id] = version
+    for item in items:
+        version = latest_versions.get(item["id"])
+        item["version"] = version.version if version else 1
+        if version:
+            item.update(title=version.title, description=version.description,
+                        rubric=version.scoring_rubric, scoring_rubric=version.scoring_rubric,
+                        rubric_available=bool(version.scoring_rubric.strip()),
+                        rubric_note="" if version.scoring_rubric.strip() else "当前任务未设置评分标准。")
     return items
 
 

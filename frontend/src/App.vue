@@ -87,7 +87,20 @@ const teacherCode = ref(sessionStorage.getItem('teaching-assistant-teacher-code'
 const teacherCodeInput = ref('')
 const teacherWorkspaceRef = ref(null)
 const teacherData = ref(null)
-const teacherSection = ref('analytics')
+const teacherSection = ref('assignments')
+const teacherAssignments = ref({ tasks: [], submissions: [], classes: [] })
+const teacherSelectedTaskId = ref('')
+const teacherTaskDetail = ref(null)
+const teacherTaskEditing = ref(false)
+const teacherTaskDraft = ref({ title: '', description: '', scoring_rubric: '' })
+const teacherTaskLoading = ref(false)
+const teacherAssignmentModule = ref('')
+const teacherAssignmentQuery = ref('')
+const teacherSubmissionClass = ref('')
+const teacherSubmissionStudent = ref('')
+const teacherSubmissionStatus = ref('')
+const teacherSubmissionFrom = ref('')
+const teacherSubmissionTo = ref('')
 const teacherAnalytics = ref(null)
 const teacherFilter = ref({ class_name: '', module: '', from_date: '', to_date: '' })
 const teacherMaterialFile = ref(null)
@@ -106,6 +119,7 @@ const reviewNote = ref('')
 const status = ref(null)
 const sessions = ref([])
 const sourceDetail = ref(null)
+const assignmentImagePreview = ref(null)
 const selectedImage = ref(null)
 const imageInput = ref(null)
 const messageList = ref(null)
@@ -180,6 +194,18 @@ const assignmentStatusLabel = computed(() => {
   if (review === 'needs_revision') return '建议修订'
   return selectedAssignmentSubmission.value ? '已提交 · 待教师复核' : '待提交'
 })
+const visibleTeacherTasks = computed(() => teacherAssignments.value.tasks.filter(task =>
+  (!teacherAssignmentModule.value || task.module === teacherAssignmentModule.value)
+  && (!teacherAssignmentQuery.value.trim() || `${task.title} ${task.id}`.toLowerCase().includes(teacherAssignmentQuery.value.trim().toLowerCase()))
+))
+const visibleTeacherSubmissions = computed(() => teacherAssignments.value.submissions.filter(item =>
+  (!teacherSelectedTaskId.value || item.assignment_id === teacherSelectedTaskId.value)
+  && (!teacherSubmissionClass.value || item.class_name === teacherSubmissionClass.value)
+  && (!teacherSubmissionStudent.value.trim() || `${item.student_name} ${item.student_number}`.toLowerCase().includes(teacherSubmissionStudent.value.trim().toLowerCase()))
+  && (!teacherSubmissionStatus.value || item.teacher_review_status === teacherSubmissionStatus.value)
+  && (!teacherSubmissionFrom.value || item.created_at.slice(0, 10) >= teacherSubmissionFrom.value)
+  && (!teacherSubmissionTo.value || item.created_at.slice(0, 10) <= teacherSubmissionTo.value)
+))
 const isEmptyThread = computed(() => activeTab.value === 'ask' && messages.value.length === 0 && !pendingQuestion.value)
 
 async function chooseSample(sample) {
@@ -231,6 +257,10 @@ function formatSessions(items) {
 
 function renderAssignmentText(content, module = '') {
   return DOMPurify.sanitize(assignmentMarkdown.render(formatAssignmentText(content, module)))
+}
+
+function openAssignmentImage(image) {
+  assignmentImagePreview.value = image
 }
 
 async function handleCodeCopy(event) {
@@ -330,6 +360,9 @@ function lockTeacher() {
   teacherCode.value = ''
   teacherData.value = null
   teacherAnalytics.value = null
+  teacherAssignments.value = { tasks: [], submissions: [], classes: [] }
+  teacherTaskDetail.value = null
+  teacherSelectedTaskId.value = ''
   selectedTeacherSubmission.value = null
   sessionStorage.removeItem('teaching-assistant-teacher-code')
 }
@@ -360,10 +393,94 @@ async function saveSubmissionReview() {
     })
     await selectTeacherSubmission(selectedTeacherSubmission.value)
     await loadTeacherAnalytics()
+    await loadTeacherAssignments()
   } catch (cause) {
     error.value = cause.message
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTeacherAssignments() {
+  if (!teacherCode.value) return
+  try {
+    teacherAssignments.value = await request('/api/teacher/assignments')
+  } catch (cause) {
+    error.value = cause.message
+  }
+}
+
+async function openTeacherAssignments() {
+  teacherSection.value = 'assignments'
+  await loadTeacherAssignments()
+  if (teacherWorkspaceRef.value) teacherWorkspaceRef.value.scrollTop = 0
+}
+
+async function selectTeacherTask(task) {
+  teacherSelectedTaskId.value = task.id
+  teacherTaskEditing.value = false
+  teacherTaskLoading.value = true
+  selectedTeacherSubmission.value = null
+  error.value = ''
+  try {
+    teacherTaskDetail.value = await request(`/api/teacher/assignments/${encodeURIComponent(task.id)}`)
+    const current = teacherTaskDetail.value.task
+    teacherTaskDraft.value = { title: current.title, description: current.description,
+      scoring_rubric: current.scoring_rubric || '' }
+  } catch (cause) {
+    error.value = cause.message
+  } finally {
+    teacherTaskLoading.value = false
+  }
+}
+
+async function saveTeacherTask() {
+  if (!teacherTaskDetail.value || teacherTaskLoading.value) return
+  teacherTaskLoading.value = true
+  error.value = ''
+  try {
+    teacherTaskDetail.value = await request(`/api/teacher/assignments/${encodeURIComponent(teacherSelectedTaskId.value)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...teacherTaskDraft.value,
+        expected_version: teacherTaskDetail.value.task.version }),
+    })
+    teacherTaskEditing.value = false
+    await loadTeacherAssignments()
+  } catch (cause) {
+    error.value = cause.message
+  } finally {
+    teacherTaskLoading.value = false
+  }
+}
+
+async function downloadTeacherSubmissionBundle(submissionId, group = 'all') {
+  error.value = ''
+  try {
+    const response = await fetch(`/api/teacher/submissions/${submissionId}/download?group=${group}`, {
+      headers: { 'X-Teacher-Code': teacherCode.value },
+    })
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || '下载失败')
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `提交${submissionId}_${group === 'work' ? '作品' : group === 'report' ? '报告' : '完整材料'}.zip`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000)
+  } catch (cause) {
+    error.value = cause.message
+  }
+}
+
+async function deleteTeacherSubmission() {
+  const item = selectedTeacherSubmission.value
+  if (!item || !window.confirm(`确定删除 ${item.student_name} 的这次提交吗？删除后学生和教师都无法在页面查看。`)) return
+  error.value = ''
+  try {
+    await request(`/api/teacher/submissions/${item.id}`, { method: 'DELETE' })
+    selectedTeacherSubmission.value = null
+    await Promise.all([loadTeacherAssignments(), loadTeacherAnalytics()])
+  } catch (cause) {
+    error.value = cause.message
   }
 }
 
@@ -457,8 +574,14 @@ async function selectAssignment(item) {
     assignmentListScrollTop.value = assignmentWorkspaceRef.value.scrollTop
   }
   if (selectedAssignment.value?.id === item.id) {
+    if (loadedAssignmentId.value !== item.id) {
+      if (assignmentDetailsLoading.value) return
+      await loadAssignmentDetails(item)
+    }
+    if (loadedAssignmentId.value !== item.id) return
     assignmentDetailOpen.value = true
-    if (loadedAssignmentId.value !== item.id && !assignmentDetailsLoading.value) await loadAssignmentDetails(item)
+    await nextTick()
+    if (assignmentWorkspaceRef.value) assignmentWorkspaceRef.value.scrollTop = 0
     return
   }
   const hasDraft = assignmentWorkText.value.trim() || assignmentReportText.value.trim()
@@ -466,7 +589,6 @@ async function selectAssignment(item) {
     || assignmentTutorTurns.value.length || assignmentRevisionId.value !== null
   if (hasDraft && !window.confirm('切换任务会清空当前未提交内容，是否继续？')) return
   selectedAssignment.value = item
-  assignmentDetailOpen.value = true
   assignmentTutorOpen.value = false
   assignmentDetailsLoading.value = false
   loadedAssignmentId.value = ''
@@ -482,6 +604,10 @@ async function selectAssignment(item) {
   assignmentTutorTurns.value = []
   assignmentTutorInput.value = ''
   await loadAssignmentDetails(item)
+  if (selectedAssignment.value?.id !== item.id || loadedAssignmentId.value !== item.id) return
+  assignmentDetailOpen.value = true
+  await nextTick()
+  if (assignmentWorkspaceRef.value) assignmentWorkspaceRef.value.scrollTop = 0
 }
 
 async function backToAssignmentList() {
@@ -558,6 +684,8 @@ async function submitAssignment() {
     retainedAssignmentFiles.value = []
     assignmentWorkFiles.value = []
     assignmentReportFiles.value = []
+    await nextTick()
+    if (assignmentWorkspaceRef.value) assignmentWorkspaceRef.value.scrollTop = 0
   } catch (cause) {
     error.value = cause.message
   } finally {
@@ -582,6 +710,11 @@ function newAssignmentSubmission() {
 function showAssignmentSubmission(item) {
   assignmentGrade.value = item.evaluation
   selectedSubmissionId.value = item.submission_id
+  nextTick(() => { if (assignmentWorkspaceRef.value) assignmentWorkspaceRef.value.scrollTop = 0 })
+}
+
+function showAssignmentGradeDetail() {
+  document.getElementById('assignment-grade-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 async function reviseAssignmentSubmission(item) {
@@ -665,12 +798,14 @@ async function openTeacher() {
   if (teacherWorkspaceRef.value) teacherWorkspaceRef.value.scrollTop = 0
   if (!teacherCode.value) return
   try {
-    const [overview, analytics] = await Promise.all([
+    const [overview, analytics, assignments] = await Promise.all([
       request('/api/teacher/overview'),
       request(`/api/teacher/analytics?${new URLSearchParams(Object.entries(teacherFilter.value).filter(([, value]) => value)).toString()}`),
+      request('/api/teacher/assignments'),
     ])
     teacherData.value = overview
     teacherAnalytics.value = analytics
+    teacherAssignments.value = assignments
     if (selectedTeacherQuestion.value) {
       selectedTeacherQuestion.value = teacherData.value.questions.find(
         item => item.id === selectedTeacherQuestion.value.id) || null
@@ -1219,9 +1354,9 @@ onMounted(refresh)
                 <button type="button" class="assignment-group-heading" :aria-expanded="!collapsedAssignmentGroups.has(`${group.module}-${group.source}`)" @click="toggleAssignmentGroup(`${group.module}-${group.source}`)"><span class="group-chevron">{{ collapsedAssignmentGroups.has(`${group.module}-${group.source}`) ? '▸' : '▾' }}</span><strong>{{ group.module }}</strong><span class="group-source" :title="group.source">{{ group.source }}</span><small>{{ group.items.length }} 项</small></button>
                 <div class="assignment-group-body" :class="{ collapsed: collapsedAssignmentGroups.has(`${group.module}-${group.source}`) }">
                   <TransitionGroup name="task-row" tag="div" class="assignment-group-items">
-                    <button v-for="item in collapsedAssignmentGroups.has(`${group.module}-${group.source}`) ? [] : group.items" :key="item.id" class="assignment-card assignment-card-select" :class="{ active: selectedAssignment?.id === item.id }" @click="selectAssignment(item)">
+                    <button v-for="item in collapsedAssignmentGroups.has(`${group.module}-${group.source}`) ? [] : group.items" :key="item.id" class="assignment-card assignment-card-select" :class="{ active: selectedAssignment?.id === item.id }" :disabled="assignmentDetailsLoading && selectedAssignment?.id === item.id" @click="selectAssignment(item)">
                       <strong>{{ item.title }}</strong>
-                      <span :title="item.rubric_available ? '含手册评分点' : item.rubric_note">{{ item.rubric_available ? '含手册评分点' : '评分待教师确认' }}</span>
+                      <span :title="item.rubric_available ? '含手册评分点' : item.rubric_note">{{ assignmentDetailsLoading && selectedAssignment?.id === item.id ? '正在打开任务…' : item.rubric_available ? '含手册评分点' : '评分待教师确认' }}</span>
                     </button>
                   </TransitionGroup>
                 </div>
@@ -1243,12 +1378,22 @@ onMounted(refresh)
             </div>
           </header>
 
+          <section v-if="assignmentGrade" class="assignment-result-banner" aria-live="polite">
+            <div><span>AI 验收结果 · 第 {{ selectedSubmissionId }} 次提交</span><strong>{{ assignmentGrade.total_score }} 分</strong><small>作品 {{ assignmentGrade.acceptance_score }} 分 × 70% ＋ 报告 {{ assignmentGrade.report_score }} 分 × 30%</small></div>
+            <button type="button" class="secondary-button" @click="showAssignmentGradeDetail">查看评分明细 ↓</button>
+          </section>
           <div class="assignment-detail-layout">
             <main class="assignment-guide-column">
               <section class="assignment-guide-section">
                 <header class="assignment-section-heading"><div><h2>任务要求</h2><p>课程目标、实现内容与手册原文</p></div><BookOpen :size="19" :stroke-width="1.8" aria-hidden="true" /></header>
                 <p v-if="assignmentDetailsLoading" class="assignment-content-loading" role="status">正在读取完整手册要求与提交记录…</p>
                 <div v-else class="assignment-manual-text" @click="handleCodeCopy" v-html="renderAssignmentText(selectedAssignment.description, selectedAssignment.module)"></div>
+                <div v-if="!assignmentDetailsLoading && selectedAssignment.images?.length" class="assignment-manual-images">
+                  <figure v-for="image in selectedAssignment.images" :key="image.url">
+                    <button type="button" class="assignment-image-trigger" :aria-label="`放大查看${image.alt}`" @click="openAssignmentImage(image)"><img :src="image.url" :alt="image.alt" :width="image.width" :height="image.height" loading="lazy"></button>
+                    <figcaption>{{ image.alt }}</figcaption>
+                  </figure>
+                </div>
               </section>
 
               <details class="assignment-rubric-section" :open="!selectedAssignment.rubric_available">
@@ -1266,7 +1411,7 @@ onMounted(refresh)
                 </div>
               </section>
 
-              <section v-if="assignmentGrade" class="assignment-grade">
+              <section v-if="assignmentGrade" id="assignment-grade-detail" class="assignment-grade">
                 <h2>AI 验收反馈 <small>{{ selectedAssignmentSubmission?.created_at ? new Date(selectedAssignmentSubmission.created_at).toLocaleString('zh-CN') : '' }}</small></h2>
                 <div class="grade-score-row"><div><strong>{{ assignmentGrade.acceptance_score }}</strong><span>现场验收 / 100 · 权重 70%</span></div><div><strong>{{ assignmentGrade.report_score }}</strong><span>实验报告 / 100 · 权重 30%</span></div><div class="grade-total"><strong>{{ assignmentGrade.total_score }}</strong><span>加权总分 / 100</span></div></div>
                 <div v-if="selectedAssignmentSubmission" class="teacher-feedback"><strong>教师复核：{{ selectedAssignmentSubmission.teacher_review_status === 'approved' ? '已确认' : selectedAssignmentSubmission.teacher_review_status === 'needs_revision' ? '建议修订' : '待复核' }}</strong><span v-if="selectedAssignmentSubmission.teacher_final_score !== null">最终分数：{{ selectedAssignmentSubmission.teacher_final_score }}</span><p v-if="selectedAssignmentSubmission.teacher_review_note">{{ selectedAssignmentSubmission.teacher_review_note }}</p></div>
@@ -1290,7 +1435,7 @@ onMounted(refresh)
                     <section class="assignment-form-block"><h3>作品与代码</h3><label>功能说明、代码或运行证据<textarea v-model="assignmentWorkText" rows="5" placeholder="描述完成的功能、关键实现，或粘贴代码和验收说明。也可以上传源码、项目 ZIP、截图。" @paste="pasteAssignmentImage($event, 'work')"></textarea></label>
                       <div class="assignment-upload-row"><input ref="assignmentWorkInput" type="file" multiple accept=".zip,.py,.c,.h,.cpp,.hpp,.java,.js,.html,.css,.json,.xml,.md,.ino,.sql,.txt,.pdf,.docx,.png,.jpg,.jpeg,.webp" hidden @change="addSubmissionFiles($event, 'work')"><button type="button" class="attach-button" :disabled="assignmentSubmitting" @click="assignmentWorkInput?.click()">＋ 添加作品附件</button><span v-for="file in retainedAssignmentFiles.filter(item => item.group === 'work')" :key="`old-work-${file.index}`" class="submission-file"><span><strong>{{ file.filename }}</strong><small>已提交附件 · {{ file.filename.split('.').pop()?.toUpperCase() || 'FILE' }}</small></span><button type="button" aria-label="移除保留附件" @click="retainedAssignmentFiles = retainedAssignmentFiles.filter(item => item.index !== file.index)">×</button></span><span v-for="(file, index) in assignmentWorkFiles" :key="file.filename + index" class="submission-file"><span><strong>{{ file.filename }}</strong><small>待提交 · {{ file.filename.split('.').pop()?.toUpperCase() || 'FILE' }}</small></span><button type="button" :aria-label="`移除 ${file.filename}`" @click="assignmentWorkFiles.splice(index, 1)">×</button></span></div>
                     </section>
-                    <section class="assignment-form-block"><h3>实验报告</h3><label>报告内容<textarea v-model="assignmentReportText" rows="4" placeholder="粘贴报告内容，或上传 DOCX / PDF 报告。报告按课程标准占总评 30%。" @paste="pasteAssignmentImage($event, 'report')"></textarea></label>
+                    <section class="assignment-form-block"><h3>实验报告</h3><a v-if="selectedAssignment.report_template" class="assignment-template-link" :href="selectedAssignment.report_template.url" :download="selectedAssignment.report_template.name"><span>↓ 下载报告模板</span><small>{{ selectedAssignment.report_template.name }}</small></a><label>报告内容<textarea v-model="assignmentReportText" rows="4" placeholder="粘贴报告内容，或上传 DOCX / PDF 报告。报告按课程标准占总评 30%。" @paste="pasteAssignmentImage($event, 'report')"></textarea></label>
                       <div class="assignment-upload-row"><input ref="assignmentReportInput" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" hidden @change="addSubmissionFiles($event, 'report')"><button type="button" class="attach-button" :disabled="assignmentSubmitting" @click="assignmentReportInput?.click()">＋ 添加报告附件</button><span v-for="file in retainedAssignmentFiles.filter(item => item.group === 'report')" :key="`old-report-${file.index}`" class="submission-file"><span><strong>{{ file.filename }}</strong><small>已提交附件 · {{ file.filename.split('.').pop()?.toUpperCase() || 'FILE' }}</small></span><button type="button" aria-label="移除保留附件" @click="retainedAssignmentFiles = retainedAssignmentFiles.filter(item => item.index !== file.index)">×</button></span><span v-for="(file, index) in assignmentReportFiles" :key="file.filename + index" class="submission-file"><span><strong>{{ file.filename }}</strong><small>待提交 · {{ file.filename.split('.').pop()?.toUpperCase() || 'FILE' }}</small></span><button type="button" :aria-label="`移除 ${file.filename}`" @click="assignmentReportFiles.splice(index, 1)">×</button></span></div>
                     </section>
                     <button class="send-button assignment-submit-button" :disabled="assignmentSubmitting || assignmentDetailsLoading">{{ assignmentDetailsLoading ? '正在载入任务…' : assignmentSubmitting ? '正在验收评分…' : assignmentRevisionId ? '保存修订并重新评分' : assignmentSubmissions.length ? '重新提交并评分' : '提交并评分' }}</button>
@@ -1308,6 +1453,14 @@ onMounted(refresh)
             </aside>
           </div>
         </section>
+        <Transition name="modal">
+          <div v-if="assignmentImagePreview" class="modal-backdrop assignment-image-backdrop" role="presentation" @click.self="assignmentImagePreview = null" @keydown.esc.window="assignmentImagePreview = null">
+            <section class="slide-modal assignment-image-modal" role="dialog" aria-modal="true" :aria-label="assignmentImagePreview.alt">
+              <header class="slide-modal-header"><strong>{{ assignmentImagePreview.alt }}</strong><button type="button" class="modal-close" aria-label="关闭图片预览" @click="assignmentImagePreview = null">×</button></header>
+              <div class="slide-modal-body"><img class="slide-preview" :src="assignmentImagePreview.url" :alt="assignmentImagePreview.alt"></div>
+            </section>
+          </div>
+        </Transition>
       </section>
 
       <section v-else-if="activeTab === 'progress'" class="progress-workspace">
@@ -1338,12 +1491,39 @@ onMounted(refresh)
         <form v-if="!teacherCode" class="teacher-access" @submit.prevent="unlockTeacher"><h2>教师身份验证</h2><p>请输入本机 .env 中的 TEACHER_ACCESS_CODE 访问码。</p><input v-model="teacherCodeInput" type="password" autocomplete="off" placeholder="教师访问码" required><button class="send-button">进入工作台</button></form>
         <template v-else>
         <nav class="teacher-subnav" aria-label="教师工作台页面">
+          <button type="button" :class="{ active: teacherSection === 'assignments' }" :aria-current="teacherSection === 'assignments' ? 'page' : undefined" @click="openTeacherAssignments">作业管理 <span v-if="teacherAssignments.tasks.some(task => task.pending)">{{ teacherAssignments.tasks.reduce((count, task) => count + task.pending, 0) }}</span></button>
           <button type="button" :class="{ active: teacherSection === 'analytics' }" :aria-current="teacherSection === 'analytics' ? 'page' : undefined" @click="teacherSection = 'analytics'">学情分析</button>
           <button type="button" :class="{ active: teacherSection === 'materials' }" :aria-current="teacherSection === 'materials' ? 'page' : undefined" @click="teacherSection = 'materials'">课程资料</button>
           <button type="button" :class="{ active: teacherSection === 'reviews' }" :aria-current="teacherSection === 'reviews' ? 'page' : undefined" @click="teacherSection = 'reviews'">回答审核 <span v-if="teacherData?.totals?.pending_reviews">{{ teacherData.totals.pending_reviews }}</span></button>
           <button type="button" class="teacher-logout" @click="lockTeacher">退出教师视图</button>
         </nav>
         <div class="teacher-panels">
+        <div v-show="teacherSection === 'assignments'" class="teacher-panel teacher-assignment-panel">
+          <div class="teacher-section-heading"><h2>作业管理</h2><span>全部 {{ teacherAssignments.tasks.length }} 项任务 · {{ teacherAssignments.submissions.length }} 次提交</span></div>
+          <div class="teacher-assignment-filters"><label>模块<CustomSelect v-model="teacherAssignmentModule" :options="[{ value: '', label: '全部模块' }, ...modules.slice(1).map(name => ({ value: name, label: name }))]" aria-label="任务模块" /></label><label>查找任务<input v-model="teacherAssignmentQuery" type="search" placeholder="任务名称或编号"></label></div>
+          <div class="teacher-assignment-grid">
+            <div class="teacher-task-list" aria-label="任务列表">
+              <button v-for="task in visibleTeacherTasks" :key="task.id" type="button" :class="{ active: teacherSelectedTaskId === task.id }" @click="selectTeacherTask(task)"><strong>{{ task.title }}</strong><small>{{ task.module }} · v{{ task.version }} · {{ task.students }} 人 · {{ task.submissions }} 次提交 · 待复核 {{ task.pending }}</small></button>
+              <p v-if="!visibleTeacherTasks.length" class="teacher-assignment-empty">没有匹配的任务。</p>
+            </div>
+            <section class="teacher-task-detail">
+              <p v-if="teacherTaskLoading && !teacherTaskDetail" class="teacher-assignment-empty">正在读取任务要求…</p>
+              <template v-else-if="teacherTaskDetail?.task?.id === teacherSelectedTaskId">
+                <div class="teacher-task-detail-heading"><div><small>{{ teacherTaskDetail.task.module }} · 当前版本 v{{ teacherTaskDetail.task.version }}</small><h3>{{ teacherTaskDetail.task.title }}</h3></div><button type="button" class="secondary-button" @click="teacherTaskEditing = !teacherTaskEditing">{{ teacherTaskEditing ? '取消编辑' : '编辑任务' }}</button></div>
+                <form v-if="teacherTaskEditing" class="teacher-task-edit" @submit.prevent="saveTeacherTask"><label>任务名称<input v-model="teacherTaskDraft.title" maxlength="255" required></label><label>任务要求<textarea v-model="teacherTaskDraft.description" rows="11" maxlength="100000" required></textarea></label><label>评分标准<textarea v-model="teacherTaskDraft.scoring_rubric" rows="7" maxlength="30000" required></textarea></label><button class="send-button" :disabled="teacherTaskLoading">{{ teacherTaskLoading ? '保存中…' : '保存为新版本' }}</button></form>
+                <template v-else><h4>任务要求</h4><div class="assignment-manual-text" v-html="renderAssignmentText(teacherTaskDetail.task.description, teacherTaskDetail.task.module)"></div><h4>评分标准</h4><div class="assignment-manual-text" v-html="renderAssignmentText(teacherTaskDetail.task.scoring_rubric, teacherTaskDetail.task.module)"></div></template>
+                <details v-if="teacherTaskDetail.versions.length" class="teacher-task-versions"><summary>版本记录（{{ teacherTaskDetail.versions.length }}）</summary><div v-for="version in teacherTaskDetail.versions" :key="version.version"><strong>v{{ version.version }} · {{ version.title }}</strong><small>{{ new Date(version.created_at).toLocaleString('zh-CN') }}</small><details><summary>查看该版本要求与评分标准</summary><pre>{{ version.description }}</pre><pre>{{ version.scoring_rubric }}</pre></details></div></details>
+              </template>
+              <p v-else class="teacher-assignment-empty">选择左侧任务，查看要求、评分标准和版本记录。</p>
+            </section>
+          </div>
+          <div class="teacher-section-heading teacher-submission-heading"><h2>学生提交</h2><div class="teacher-submission-actions"><button v-if="selectedTeacherSubmission" type="button" class="record-action danger" @click="deleteTeacherSubmission">删除所选提交</button><button v-if="teacherSelectedTaskId" type="button" class="text-button" @click="teacherSelectedTaskId = ''; teacherTaskDetail = null; selectedTeacherSubmission = null">查看全部任务提交</button></div></div>
+          <div class="teacher-submission-filters"><label>班级<CustomSelect v-model="teacherSubmissionClass" :options="[{ value: '', label: '全部班级' }, ...teacherAssignments.classes.map(name => ({ value: name, label: name }))]" aria-label="提交班级" /></label><label>学生<input v-model="teacherSubmissionStudent" type="search" placeholder="姓名或学号"></label><label>复核状态<CustomSelect v-model="teacherSubmissionStatus" :options="[{ value: '', label: '全部状态' }, { value: 'pending', label: '待复核' }, { value: 'approved', label: '已确认' }, { value: 'needs_revision', label: '需修订' }]" aria-label="提交复核状态" /></label><label>开始日期<input v-model="teacherSubmissionFrom" type="date"></label><label>结束日期<input v-model="teacherSubmissionTo" type="date"></label></div>
+          <div v-if="visibleTeacherSubmissions.length" class="teacher-submission-list"><button v-for="item in visibleTeacherSubmissions" :key="item.id" type="button" :class="{ active: selectedTeacherSubmission?.id === item.id }" @click="selectTeacherSubmission(item)"><span><strong>{{ item.student_name }} · {{ item.class_name }}</strong><small>{{ item.assignment_title }} · {{ new Date(item.created_at).toLocaleString('zh-CN') }}</small></span><span><strong>AI {{ item.total_score }}<template v-if="item.teacher_final_score !== null"> · 最终 {{ item.teacher_final_score }}</template></strong><small>v{{ item.assignment_version }} · {{ item.is_latest ? '最新提交' : '历史提交' }} · {{ item.teacher_review_status === 'approved' ? '已确认' : item.teacher_review_status === 'needs_revision' ? '需修订' : '待复核' }}</small></span></button></div>
+          <p v-else class="teacher-assignment-empty">暂无学生提交。任务列表和筛选仍可使用；学生提交后会显示在这里。</p>
+          <section v-if="selectedTeacherSubmission" class="teacher-submission-review"><div class="teacher-section-heading"><h2>提交详情 · {{ selectedTeacherSubmission.student_name }} · {{ selectedTeacherSubmission.assignment_title }}</h2><button class="text-button" @click="selectedTeacherSubmission = null">关闭</button></div><p>提交时间：{{ new Date(selectedTeacherSubmission.created_at).toLocaleString('zh-CN') }} · 任务版本 v{{ selectedTeacherSubmission.assignment_version }}<span v-if="selectedTeacherSubmission.revised_from_id"> · 修订自第 {{ selectedTeacherSubmission.revised_from_id }} 次提交</span></p><div class="teacher-submission-downloads"><button type="button" class="secondary-button" @click="downloadTeacherSubmissionBundle(selectedTeacherSubmission.id, 'work')">下载作品</button><button type="button" class="secondary-button" @click="downloadTeacherSubmissionBundle(selectedTeacherSubmission.id, 'report')">下载报告</button><button type="button" class="secondary-button" @click="downloadTeacherSubmissionBundle(selectedTeacherSubmission.id)">打包下载本次提交</button></div><details open><summary>作品文字与代码</summary><pre>{{ selectedTeacherSubmission.work_text || '作品文字为空，请下载附件。' }}</pre></details><details open><summary>实验报告文字</summary><pre>{{ selectedTeacherSubmission.report_text || '报告文字为空，请下载附件。' }}</pre></details><div v-if="selectedTeacherSubmission.attachments.length" class="teacher-submission-files"><button v-for="attachment in selectedTeacherSubmission.attachments" :key="attachment.index" class="attach-button" @click="downloadSubmissionFile(selectedTeacherSubmission.id, attachment)">下载{{ attachment.group === 'work' ? '作品' : '报告' }}：{{ attachment.filename }}</button></div><details open><summary>AI 评分明细 · {{ selectedTeacherSubmission.evaluation.total_score }} 分</summary><div v-for="(item, index) in selectedTeacherSubmission.evaluation.acceptance_items || []" :key="index" class="grade-item"><strong>{{ item.criterion }} · {{ item.score }}/{{ item.max_score }}</strong><p>{{ item.feedback }}</p></div><div v-for="(item, index) in selectedTeacherSubmission.evaluation.report_items || []" :key="`report-${index}`" class="grade-item"><strong>{{ item.criterion }} · {{ item.score }}/{{ item.max_score }}</strong><p>{{ item.feedback }}</p></div></details><form class="teacher-review-form" @submit.prevent="saveSubmissionReview"><label>复核状态<CustomSelect v-model="submissionReviewStatus" :options="[{ value: 'pending', label: '待复核' }, { value: 'approved', label: '确认' }, { value: 'needs_revision', label: '建议修订' }]" aria-label="复核状态" /></label><label>最终分数（选填）<input v-model="submissionFinalScore" type="number" min="0" max="100" step="0.1" :disabled="submissionReviewStatus !== 'approved'" placeholder="留空则显示 AI 初评分"></label><label>教师意见<textarea v-model="submissionReviewNote" rows="3" maxlength="2000" placeholder="写明确认依据或需要补充的材料"></textarea></label><button class="send-button" :disabled="loading">{{ loading ? '保存中…' : '保存复核' }}</button></form><details v-if="selectedTeacherSubmission.review_history?.length"><summary>复核历史（{{ selectedTeacherSubmission.review_history.length }}）</summary><p v-for="(event, index) in selectedTeacherSubmission.review_history" :key="index">{{ new Date(event.created_at).toLocaleString('zh-CN') }} · {{ event.status }} · {{ event.final_score ?? '未设最终分数' }} · {{ event.note || '无意见' }}</p></details></section>
+          <details v-if="selectedTeacherSubmission?.assignment_snapshot?.description" class="teacher-submission-review teacher-submission-snapshot"><summary>本次提交所用任务要求与评分标准（v{{ selectedTeacherSubmission.assignment_version }}）</summary><h4>任务要求</h4><pre>{{ selectedTeacherSubmission.assignment_snapshot.description }}</pre><h4>评分标准</h4><pre>{{ selectedTeacherSubmission.assignment_snapshot.scoring_rubric }}</pre></details>
+        </div>
         <Transition name="panel">
         <div v-show="teacherSection === 'analytics'" class="teacher-panel">
         <div class="teacher-section-heading"><h2>学习过程分析</h2></div>
@@ -1368,8 +1548,7 @@ onMounted(refresh)
           <div class="analytics-card"><h3>学生任务进度</h3><div v-for="(row, index) in teacherAnalytics.students" :key="index" class="analytics-row"><strong>{{ row.name }} · {{ row.class_name }}</strong><span>{{ row.assignment_count }} 项任务 · 均分 {{ row.average_score ?? '—' }} · {{ row.questions }} 次提问</span></div><p v-if="!teacherAnalytics.students.length" class="quiet">登记学生开始使用后，这里会显示进度。</p></div>
           <div class="analytics-card"><h3>常见问题</h3><div v-for="(row, index) in teacherAnalytics.common_issues" :key="index" class="analytics-row"><strong>{{ row.issue }}</strong><span>{{ row.count }} 次</span></div><p v-if="!teacherAnalytics.common_issues.length" class="quiet">尚无可汇总的错误或验收问题。</p></div>
         </div>
-        <div v-if="teacherAnalytics?.recent_submissions?.length" class="analytics-card teacher-recent-submissions"><h3>最近任务提交 · 点击查看与复核</h3><button v-for="row in teacherAnalytics.recent_submissions" :key="row.id" class="analytics-row teacher-submission-select" :class="{ active: selectedTeacherSubmission?.id === row.id }" @click="selectTeacherSubmission(row)"><strong>{{ row.student_name }} · {{ row.class_name }} · {{ row.assignment_title }}</strong><span>{{ row.module }} · AI {{ row.total_score }} 分<span v-if="row.teacher_final_score !== null"> · 最终 {{ row.teacher_final_score }} 分</span> · {{ row.teacher_review_status === 'approved' ? '已确认' : row.teacher_review_status === 'needs_revision' ? '需修订' : '待复核' }}</span></button></div>
-        <section v-if="selectedTeacherSubmission" class="teacher-submission-review"><div class="teacher-section-heading"><h2>复核：{{ selectedTeacherSubmission.assignment_title }}</h2><button class="text-button" @click="selectedTeacherSubmission = null">关闭</button></div><p>AI 初评分：{{ selectedTeacherSubmission.evaluation.total_score }}。请结合原始代码、报告和附件确认。</p><details><summary>作品文字</summary><pre>{{ selectedTeacherSubmission.work_text || '作品文字为空，请查看附件。' }}</pre></details><details><summary>实验报告文字</summary><pre>{{ selectedTeacherSubmission.report_text || '报告文字为空，请查看附件。' }}</pre></details><div class="teacher-submission-files"><button v-for="attachment in selectedTeacherSubmission.attachments" :key="attachment.index" class="attach-button" @click="downloadSubmissionFile(selectedTeacherSubmission.id, attachment)">下载{{ attachment.group === 'work' ? '作品' : '报告' }}：{{ attachment.filename }}</button></div><details><summary>AI 评分明细</summary><div v-for="(item, index) in selectedTeacherSubmission.evaluation.acceptance_items || []" :key="index" class="grade-item"><strong>{{ item.criterion }} · {{ item.score }}/{{ item.max_score }}</strong><p>{{ item.feedback }}</p></div><div v-for="(item, index) in selectedTeacherSubmission.evaluation.report_items || []" :key="`report-${index}`" class="grade-item"><strong>{{ item.criterion }} · {{ item.score }}/{{ item.max_score }}</strong><p>{{ item.feedback }}</p></div></details><form class="teacher-review-form" @submit.prevent="saveSubmissionReview"><label>复核状态<CustomSelect v-model="submissionReviewStatus" :options="[{ value: 'pending', label: '待复核' }, { value: 'approved', label: '确认' }, { value: 'needs_revision', label: '建议修订' }]" aria-label="复核状态" /></label><label>最终分数（选填）<input v-model="submissionFinalScore" type="number" min="0" max="100" step="0.1" :disabled="submissionReviewStatus !== 'approved'" placeholder="留空则显示 AI 初评分"></label><label>教师意见<textarea v-model="submissionReviewNote" rows="3" maxlength="2000" placeholder="写明确认依据或需要补充的材料"></textarea></label><button class="send-button" :disabled="loading">{{ loading ? '保存中…' : '保存复核' }}</button></form></section>
+          <div class="analytics-card teacher-recent-submissions"><h3>最近任务提交</h3><p>{{ teacherAnalytics?.recent_submissions?.length ? `最近有 ${teacherAnalytics.recent_submissions.length} 条提交记录。` : '目前暂无学生提交。' }}</p><button type="button" class="secondary-button" @click="openTeacherAssignments">进入作业管理</button></div>
         </div>
         </Transition>
         <Transition name="panel">

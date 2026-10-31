@@ -5,6 +5,8 @@ import json
 import base64
 import binascii
 import zipfile
+import posixpath
+import xml.etree.ElementTree as ET
 import re
 import uuid
 import hmac
@@ -41,9 +43,10 @@ from app.agents.offline import (
 from app.api.schemas import (AssignmentGradeRequest, AssignmentTutorRequest, CodeRequest,
                              LearningSummaryRequest, QuestionRequest, SearchRequest,
                              SubmissionAttachment, StudentProfileRequest, TeacherReviewRequest,
-                             TeacherSubmissionReviewRequest)
+                             TeacherSubmissionReviewRequest, TeacherAssignmentEditRequest)
 from app.core.config import settings
-from app.database.models import (AssignmentSubmission, CodeReview, Conversation, Document, DocumentAsset,
+from app.database.models import (AssignmentReviewEvent, AssignmentSubmission, AssignmentVersion,
+                                 CodeReview, Conversation, Document, DocumentAsset,
                                  LearningSummary, MaterialRevision, Slide, SlideVisual, StudentProfile)
 from app.database.session import get_db, init_db
 from app.knowledge.ingest import current_stats, import_course_zip
@@ -275,7 +278,8 @@ def student_progress(student_key: str = Depends(_student_key), db: Session = Dep
     reviews = db.scalars(select(CodeReview).where(CodeReview.student_key == student_key)).all()
     summaries = db.scalars(select(LearningSummary).where(LearningSummary.student_key == student_key)).all()
     submissions = db.scalars(select(AssignmentSubmission).where(
-        AssignmentSubmission.student_key == student_key).order_by(desc(AssignmentSubmission.id))).all()
+        AssignmentSubmission.student_key == student_key,
+        AssignmentSubmission.teacher_deleted_at.is_(None)).order_by(desc(AssignmentSubmission.id))).all()
     latest = {}
     for item in submissions:
         latest.setdefault(item.assignment_id, item)
@@ -313,6 +317,50 @@ def assignment_detail(assignment_id: str, db: Session = Depends(get_db)):
     if not item:
         raise HTTPException(status_code=404, detail="未找到该指导手册任务")
     return item
+
+
+@app.get("/api/assignments/{assignment_id}/report-template")
+def assignment_report_template(assignment_id: str, db: Session = Depends(get_db)):
+    item = get_assignment(db, assignment_id)
+    template = item.get("report_template") if item else None
+    if not template:
+        raise HTTPException(status_code=404, detail="报告模板不存在")
+    document = db.get(Document, template["document_id"])
+    path = (settings.root / document.storage_path).resolve() if document and document.storage_path else None
+    if not path or not path.is_relative_to(settings.material_upload_path.resolve()) or not path.is_file():
+        raise HTTPException(status_code=404, detail="报告模板文件不存在")
+    return FileResponse(path, filename=template["name"],
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@app.get("/api/assignments/{assignment_id}/images/{image_id}")
+def assignment_image(assignment_id: str, image_id: str, db: Session = Depends(get_db)):
+    item = get_assignment(db, assignment_id)
+    if not item or not any(image["url"].endswith(f"/{image_id}") for image in item.get("images", [])):
+        raise HTTPException(status_code=404, detail="任务配图不存在")
+    document = db.scalar(select(Document).where(Document.filename == item["source"]))
+    path = (settings.root / document.storage_path).resolve() if document and document.storage_path else None
+    if not path or not path.is_relative_to(settings.material_upload_path.resolve()) or not path.is_file():
+        raise HTTPException(status_code=404, detail="原始手册不存在")
+    mime_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                  ".gif": "image/gif", ".webp": "image/webp"}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            relations = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+            relation = next((node for node in relations
+                             if node.get("Id") == image_id and node.get("TargetMode") != "External"), None)
+            if relation is None:
+                raise KeyError(image_id)
+            target = relation.get("Target", "")
+            member = target.lstrip("/") if target.startswith("/word/") else posixpath.normpath(posixpath.join("word", target))
+            mime = mime_types.get(Path(member).suffix.lower())
+            if not member.startswith("word/media/") or not mime or archive.getinfo(member).file_size > 8_000_000:
+                raise KeyError(image_id)
+            data = archive.read(member)
+    except (OSError, KeyError, ValueError, ET.ParseError, zipfile.BadZipFile):
+        raise HTTPException(status_code=404, detail="任务配图文件不存在")
+    return StreamingResponse(io.BytesIO(data), media_type=mime,
+                             headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=86400"})
 
 
 def _read_submission_attachment(filename: str, encoded: str):
@@ -461,6 +509,10 @@ def grade_assignment(assignment_id: str, request: AssignmentGradeRequest,
         attachments_json=json.dumps(attachment_records, ensure_ascii=False),
         acceptance_score=result["acceptance_score"], report_score=result["report_score"],
         total_score=result["total_score"], evaluation_json=json.dumps(result, ensure_ascii=False),
+        assignment_version=assignment.get("version", 1),
+        assignment_snapshot_json=json.dumps({key: assignment.get(key) for key in
+                                             ("title", "module", "description", "scoring_rubric", "version")},
+                                            ensure_ascii=False),
     )
     db.add(record)
     db.commit()
@@ -476,6 +528,8 @@ def assignment_submissions(assignment_id: str, session_id: str | None = None, db
     records = db.scalars(select(AssignmentSubmission).where(
         AssignmentSubmission.assignment_id == assignment_id,
         AssignmentSubmission.student_key == student_key,
+        AssignmentSubmission.student_hidden_at.is_(None),
+        AssignmentSubmission.teacher_deleted_at.is_(None),
     ).order_by(desc(AssignmentSubmission.id)).limit(10)).all()
     return [{"submission_id": item.id, "assignment_id": item.assignment_id,
              "assignment_title": item.assignment_title, "module": item.module,
@@ -484,6 +538,8 @@ def assignment_submissions(assignment_id: str, session_id: str | None = None, db
              "teacher_review_status": item.teacher_review_status,
              "teacher_review_note": item.teacher_review_note,
              "teacher_final_score": item.teacher_final_score,
+             "assignment_version": item.assignment_version,
+             "revised_from_id": item.revised_from_id,
              "created_at": item.created_at.isoformat(),
              "attachments": [{"index": index, "group": attachment["group"],
                               "filename": attachment["filename"]}
@@ -493,7 +549,7 @@ def assignment_submissions(assignment_id: str, session_id: str | None = None, db
 def _owned_submission(db: Session, assignment_id: str, submission_id: int,
                       student_key: str) -> AssignmentSubmission:
     record = db.get(AssignmentSubmission, submission_id)
-    if not record or record.assignment_id != assignment_id or record.student_key != student_key:
+    if not record or record.assignment_id != assignment_id or record.student_key != student_key or record.teacher_deleted_at is not None:
         raise HTTPException(status_code=404, detail="未找到本会话中的提交记录")
     return record
 
@@ -559,9 +615,9 @@ def revise_assignment_submission(assignment_id: str, submission_id: int,
         report_files=[*retained_report, *request.report_files],
     )
     result = grade_assignment(assignment_id, revised_request, db, student_key)
-    db.delete(record)
+    revised = db.get(AssignmentSubmission, result["submission_id"])
+    revised.revised_from_id = record.id
     db.commit()
-    _remove_submission_files(record)
     return {**result, "revised_from": submission_id}
 
 
@@ -570,9 +626,8 @@ def delete_assignment_submission(assignment_id: str, submission_id: int, session
                                  db: Session = Depends(get_db),
                                  student_key: str = Depends(_student_key)):
     record = _owned_submission(db, assignment_id, submission_id, student_key)
-    db.delete(record)
+    record.student_hidden_at = datetime.now(timezone.utc)
     db.commit()
-    _remove_submission_files(record)
     return {"deleted": True, "submission_id": submission_id}
 
 
@@ -580,7 +635,7 @@ def delete_assignment_submission(assignment_id: str, submission_id: int, session
 def regrade_assignment(assignment_id: str, submission_id: int, session_id: str | None = None,
                        db: Session = Depends(get_db), student_key: str = Depends(_student_key)):
     record = db.get(AssignmentSubmission, submission_id)
-    if not record or record.assignment_id != assignment_id or record.student_key != student_key:
+    if not record or record.assignment_id != assignment_id or record.student_key != student_key or record.teacher_deleted_at is not None:
         raise HTTPException(status_code=404, detail="未找到本会话中的提交记录")
     work_files, report_files = [], []
     for attachment in json.loads(record.attachments_json):
@@ -593,7 +648,11 @@ def regrade_assignment(assignment_id: str, submission_id: int, session_id: str |
     request = AssignmentGradeRequest(session_id=record.session_id, student_key=record.student_key,
                                      work_text=record.work_text, report_text=record.report_text,
                                      work_files=work_files, report_files=report_files)
-    return grade_assignment(assignment_id, request, db, student_key)
+    result = grade_assignment(assignment_id, request, db, student_key)
+    revised = db.get(AssignmentSubmission, result["submission_id"])
+    revised.revised_from_id = record.id
+    db.commit()
+    return result
 
 
 @app.post("/api/materials/import", dependencies=[Depends(_require_teacher)])
@@ -766,7 +825,8 @@ def teacher_analytics(class_name: str | None = None, module: str | None = None,
                      if selected(item, item.module)]
     reviews = [item for item in db.scalars(select(CodeReview)).all()
                if selected(item, item.module)]
-    submissions = [item for item in db.scalars(select(AssignmentSubmission)).all()
+    submissions = [item for item in db.scalars(select(AssignmentSubmission).where(
+        AssignmentSubmission.teacher_deleted_at.is_(None))).all()
                    if selected(item, item.module)]
     summaries = [item for item in db.scalars(select(LearningSummary)).all()
                  if selected(item)]
@@ -856,6 +916,84 @@ def teacher_analytics(class_name: str | None = None, module: str | None = None,
     }
 
 
+@app.get("/api/teacher/assignments", dependencies=[Depends(_require_teacher)])
+def teacher_assignments(db: Session = Depends(get_db)):
+    tasks = assignment_catalog(db)
+    profiles = {profile.student_key: profile for profile in db.scalars(select(StudentProfile))}
+    submissions = db.scalars(select(AssignmentSubmission).where(
+        AssignmentSubmission.teacher_deleted_at.is_(None)).order_by(desc(AssignmentSubmission.id))).all()
+    latest_ids = {}
+    for record in submissions:
+        owner = record.student_key or f"session:{record.session_id}"
+        latest_ids.setdefault((record.assignment_id, owner), record.id)
+    task_counts = defaultdict(lambda: {"students": set(), "submissions": 0, "pending": 0})
+    rows = []
+    for record in submissions:
+        profile = profiles.get(record.student_key)
+        owner = record.student_key or f"session:{record.session_id}"
+        latest = latest_ids[(record.assignment_id, owner)] == record.id
+        counts = task_counts[record.assignment_id]
+        counts["students"].add(owner)
+        counts["submissions"] += 1
+        if latest and record.teacher_review_status == "pending":
+            counts["pending"] += 1
+        rows.append({
+            "id": record.id, "assignment_id": record.assignment_id,
+            "assignment_title": record.assignment_title, "module": record.module,
+            "student_name": profile.name if profile else "未登记",
+            "student_number": profile.student_number if profile else "",
+            "class_name": profile.class_name if profile else "未登记",
+            "created_at": record.created_at.isoformat(),
+            "total_score": record.total_score, "teacher_final_score": record.teacher_final_score,
+            "teacher_review_status": record.teacher_review_status,
+            "assignment_version": record.assignment_version,
+            "revised_from_id": record.revised_from_id,
+            "student_hidden": record.student_hidden_at is not None,
+            "is_latest": latest,
+        })
+    return {
+        "tasks": [{"id": task["id"], "title": task["title"], "module": task["module"],
+                   "version": task["version"],
+                   "students": len(task_counts[task["id"]]["students"]),
+                   "submissions": task_counts[task["id"]]["submissions"],
+                   "pending": task_counts[task["id"]]["pending"]} for task in tasks],
+        "submissions": rows,
+        "classes": sorted({row["class_name"] for row in rows}),
+    }
+
+
+@app.get("/api/teacher/assignments/{assignment_id}", dependencies=[Depends(_require_teacher)])
+def teacher_assignment_detail(assignment_id: str, db: Session = Depends(get_db)):
+    item = get_assignment(db, assignment_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    versions = db.scalars(select(AssignmentVersion).where(
+        AssignmentVersion.assignment_id == assignment_id).order_by(desc(AssignmentVersion.version))).all()
+    return {"task": item,
+            "versions": [{"version": version.version, "title": version.title,
+                          "description": version.description, "scoring_rubric": version.scoring_rubric,
+                          "created_at": version.created_at.isoformat()} for version in versions]}
+
+
+@app.put("/api/teacher/assignments/{assignment_id}", dependencies=[Depends(_require_teacher)])
+def edit_teacher_assignment(assignment_id: str, payload: TeacherAssignmentEditRequest,
+                            db: Session = Depends(get_db)):
+    item = get_assignment(db, assignment_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if item["version"] != payload.expected_version:
+        raise HTTPException(status_code=409, detail="任务已被其他编辑更新，请重新打开后再保存")
+    if not db.scalar(select(AssignmentVersion.id).where(AssignmentVersion.assignment_id == assignment_id)):
+        db.add(AssignmentVersion(assignment_id=assignment_id, version=1,
+                                 title=item["title"], description=item["description"],
+                                 scoring_rubric=item["scoring_rubric"]))
+    db.add(AssignmentVersion(assignment_id=assignment_id, version=item["version"] + 1,
+                             title=payload.title.strip(), description=payload.description.strip(),
+                             scoring_rubric=payload.scoring_rubric.strip()))
+    db.commit()
+    return teacher_assignment_detail(assignment_id, db)
+
+
 @app.post("/api/teacher/reviews/{conversation_id}", dependencies=[Depends(_require_teacher)])
 def review_answer(conversation_id: int, request: TeacherReviewRequest,
                   db: Session = Depends(get_db)):
@@ -869,14 +1007,36 @@ def review_answer(conversation_id: int, request: TeacherReviewRequest,
             "review_note": record.review_note}
 
 
+@app.delete("/api/teacher/submissions/{submission_id}", dependencies=[Depends(_require_teacher)])
+def delete_teacher_submission(submission_id: int, db: Session = Depends(get_db)):
+    record = db.get(AssignmentSubmission, submission_id)
+    if record is None or record.teacher_deleted_at is not None:
+        raise HTTPException(status_code=404, detail="提交记录不存在")
+    record.teacher_deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"deleted": True, "submission_id": submission_id}
+
+
 @app.get("/api/teacher/submissions/{submission_id}", dependencies=[Depends(_require_teacher)])
 def teacher_submission_detail(submission_id: int, db: Session = Depends(get_db)):
     record = db.get(AssignmentSubmission, submission_id)
-    if record is None:
+    if record is None or record.teacher_deleted_at is not None:
         raise HTTPException(status_code=404, detail="提交记录不存在")
+    profile = db.get(StudentProfile, record.student_key) if record.student_key else None
+    history = db.scalars(select(AssignmentReviewEvent).where(
+        AssignmentReviewEvent.submission_id == record.id).order_by(desc(AssignmentReviewEvent.id))).all()
     return {"id": record.id, "assignment_title": record.assignment_title,
             "module": record.module, "work_text": record.work_text,
             "report_text": record.report_text, "evaluation": json.loads(record.evaluation_json),
+            "student_name": profile.name if profile else "未登记",
+            "class_name": profile.class_name if profile else "未登记",
+            "created_at": record.created_at.isoformat(),
+            "assignment_version": record.assignment_version,
+            "assignment_snapshot": json.loads(record.assignment_snapshot_json or "{}"),
+            "revised_from_id": record.revised_from_id,
+            "review_history": [{"status": event.status, "note": event.note,
+                                "final_score": event.final_score,
+                                "created_at": event.created_at.isoformat()} for event in history],
             "attachments": [{"index": index, "group": item["group"], "filename": item["filename"]}
                             for index, item in enumerate(json.loads(record.attachments_json))],
             "teacher_review_status": record.teacher_review_status,
@@ -889,7 +1049,7 @@ def teacher_submission_detail(submission_id: int, db: Session = Depends(get_db))
 def review_submission(submission_id: int, payload: TeacherSubmissionReviewRequest,
                       db: Session = Depends(get_db)):
     record = db.get(AssignmentSubmission, submission_id)
-    if record is None:
+    if record is None or record.teacher_deleted_at is not None:
         raise HTTPException(status_code=404, detail="提交记录不存在")
     if payload.final_score is not None and payload.status != "approved":
         raise HTTPException(status_code=400, detail="只有确认通过时才能填写最终分数")
@@ -897,11 +1057,45 @@ def review_submission(submission_id: int, payload: TeacherSubmissionReviewReques
     record.teacher_review_note = payload.note.strip() if payload.note else None
     record.teacher_final_score = payload.final_score if payload.status == "approved" else None
     record.teacher_reviewed_at = datetime.now(timezone.utc) if payload.status != "pending" else None
+    db.add(AssignmentReviewEvent(submission_id=record.id, status=record.teacher_review_status,
+                                 note=record.teacher_review_note,
+                                 final_score=record.teacher_final_score))
     db.commit()
     return {"id": record.id, "teacher_review_status": record.teacher_review_status,
             "teacher_review_note": record.teacher_review_note,
             "teacher_final_score": record.teacher_final_score,
             "teacher_reviewed_at": record.teacher_reviewed_at.isoformat() if record.teacher_reviewed_at else None}
+
+
+@app.get("/api/teacher/submissions/{submission_id}/download", dependencies=[Depends(_require_teacher)])
+def teacher_submission_bundle(submission_id: int, group: str = "all", db: Session = Depends(get_db)):
+    if group not in {"all", "work", "report"}:
+        raise HTTPException(status_code=400, detail="下载类别无效")
+    record = db.get(AssignmentSubmission, submission_id)
+    if not record or record.teacher_deleted_at is not None:
+        raise HTTPException(status_code=404, detail="提交记录不存在")
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        if group in {"all", "work"}:
+            archive.writestr("作品/作品文字.txt", record.work_text or "（未填写作品文字）")
+        if group in {"all", "report"}:
+            archive.writestr("报告/报告文字.txt", record.report_text or "（未填写报告文字）")
+        for index, attachment in enumerate(json.loads(record.attachments_json)):
+            if group != "all" and attachment["group"] != group:
+                continue
+            path = _submission_attachment_path(attachment["path"])
+            if path.is_file():
+                folder = "作品" if attachment["group"] == "work" else "报告"
+                archive.writestr(f"{folder}/附件{index + 1}_{Path(attachment['filename']).name}", path.read_bytes())
+        if group == "all":
+            archive.writestr("AI评分.json", json.dumps(json.loads(record.evaluation_json), ensure_ascii=False, indent=2))
+            archive.writestr("教师复核.json", json.dumps({"status": record.teacher_review_status,
+                                                      "note": record.teacher_review_note,
+                                                      "final_score": record.teacher_final_score},
+                                                     ensure_ascii=False, indent=2))
+    output.seek(0)
+    return StreamingResponse(output, media_type="application/zip",
+                             headers={"Content-Disposition": f"attachment; filename=submission-{submission_id}-{group}.zip"})
 
 
 @app.get("/api/submission-files/{submission_id}/{attachment_index}")
@@ -910,7 +1104,7 @@ def download_submission_file(submission_id: int, attachment_index: int,
                              x_teacher_code: str | None = Header(default=None),
                              db: Session = Depends(get_db)):
     record = db.get(AssignmentSubmission, submission_id)
-    if record is None:
+    if record is None or record.teacher_deleted_at is not None:
         raise HTTPException(status_code=404, detail="提交记录不存在")
     is_teacher = (bool(settings.teacher_access_code) and bool(x_teacher_code) and
                   hmac.compare_digest(x_teacher_code, settings.teacher_access_code))

@@ -130,10 +130,39 @@ class AssignmentSubmission(Base):
     report_score: Mapped[float] = mapped_column(Float, nullable=False)
     total_score: Mapped[float] = mapped_column(Float, nullable=False)
     evaluation_json: Mapped[str] = mapped_column(Text, nullable=False)
+    assignment_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    assignment_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    revised_from_id: Mapped[int | None] = mapped_column(Integer)
+    student_hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    teacher_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     teacher_review_status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     teacher_review_note: Mapped[str | None] = mapped_column(Text)
     teacher_final_score: Mapped[float | None] = mapped_column(Float)
     teacher_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AssignmentVersion(Base):
+    __tablename__ = "assignment_versions"
+    __table_args__ = (UniqueConstraint("assignment_id", "version", name="uq_assignment_version"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    assignment_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    scoring_rubric: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AssignmentReviewEvent(Base):
+    __tablename__ = "assignment_review_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("assignment_submissions.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    final_score: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

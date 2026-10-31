@@ -67,6 +67,11 @@ def init_db() -> None:
             connection.execute(text("ALTER TABLE code_reviews ADD COLUMN module VARCHAR(32)"))
     submission_columns = {column["name"] for column in inspect(engine).get_columns("assignment_submissions")}
     submission_migrations = {
+        "assignment_version": "INTEGER NOT NULL DEFAULT 1",
+        "assignment_snapshot_json": "TEXT NOT NULL DEFAULT '{}'",
+        "revised_from_id": "INTEGER",
+        "student_hidden_at": "DATETIME",
+        "teacher_deleted_at": "DATETIME",
         "teacher_review_status": "VARCHAR(24) NOT NULL DEFAULT 'pending'",
         "teacher_review_note": "TEXT",
         "teacher_final_score": "FLOAT",

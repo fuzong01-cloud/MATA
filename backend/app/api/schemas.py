@@ -70,6 +70,13 @@ class TeacherSubmissionReviewRequest(TeacherReviewRequest):
     final_score: float | None = Field(default=None, ge=0, le=100)
 
 
+class TeacherAssignmentEditRequest(BaseModel):
+    title: str = Field(min_length=2, max_length=255)
+    description: str = Field(min_length=10, max_length=100000)
+    scoring_rubric: str = Field(min_length=1, max_length=30000)
+    expected_version: int = Field(ge=1)
+
+
 class StudentProfileRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     student_number: str = Field(default="", max_length=40)
