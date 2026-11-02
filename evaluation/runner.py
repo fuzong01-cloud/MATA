@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.agents.llm import (CODE_SYSTEM_PROMPT, EXPERIMENT_PROMPT,
-                            GENERAL_SYSTEM_PROMPT, SYNTHESIS_PROMPT, SYSTEM_PROMPT)
+                            GENERAL_SYSTEM_PROMPT, SYNTHESIS_PROMPT, SYSTEM_PROMPT,
+                            guard_unverified_claims)
 from app.core.config import settings
 from app.database.models import Document, Slide, SlideVisual
 from app.database.session import SessionLocal
@@ -215,7 +216,9 @@ def _run_unlocked(snapshot: dict, ledger: Path, cap: int,
                 )
             finally:
                 client.close()
-            answer = (response.choices[0].message.content or "").strip()
+            answer = guard_unverified_claims(
+                (response.choices[0].message.content or "").strip(),
+                case["question"], code=case.get("code", "") if arm == "code" else "")
             if not answer:
                 raise ValueError("模型未返回正文")
             usage = getattr(response, "usage", None)

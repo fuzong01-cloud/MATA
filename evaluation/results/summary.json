@@ -48,41 +48,41 @@
     "single_rag": {
       "attempts": 30,
       "successes": 30,
-      "mean_latency_seconds": 6.36,
-      "prompt_tokens": 48355,
-      "completion_tokens": 15946,
+      "mean_latency_seconds": 6.28,
+      "prompt_tokens": 49371,
+      "completion_tokens": 16697,
       "valid_citation_rate": 1.0
     },
     "single_no_rag": {
       "attempts": 30,
       "successes": 30,
-      "mean_latency_seconds": 8.54,
+      "mean_latency_seconds": 8.01,
       "prompt_tokens": 14768,
-      "completion_tokens": 19175,
+      "completion_tokens": 19614,
       "valid_citation_rate": null
     },
     "visual": {
       "attempts": 6,
       "successes": 6,
-      "mean_latency_seconds": 5.6,
-      "prompt_tokens": 15024,
-      "completion_tokens": 2388,
+      "mean_latency_seconds": 6.5,
+      "prompt_tokens": 15216,
+      "completion_tokens": 3144,
       "valid_citation_rate": null
     },
     "code": {
       "attempts": 6,
       "successes": 6,
-      "mean_latency_seconds": 10.77,
-      "prompt_tokens": 1903,
-      "completion_tokens": 4960,
+      "mean_latency_seconds": 9.24,
+      "prompt_tokens": 2161,
+      "completion_tokens": 4624,
       "valid_citation_rate": null
     },
     "multi": {
       "attempts": 10,
       "successes": 10,
-      "mean_latency_seconds": 23.48,
-      "prompt_tokens": 60926,
-      "completion_tokens": 20815,
+      "mean_latency_seconds": 23.61,
+      "prompt_tokens": 61431,
+      "completion_tokens": 21249,
       "valid_citation_rate": 1.0
     }
   },
@@ -94,54 +94,54 @@
       "single_rag": {
         "reviewed": 30,
         "key_point_coverage": 1.0,
-        "factual_error_rate": 0.2667,
-        "source_support_rate": 0.8,
-        "uncertainty_correct_rate": 0.9333
-      },
-      "single_no_rag": {
-        "reviewed": 30,
-        "key_point_coverage": 0.7667,
-        "factual_error_rate": 0.2333,
-        "source_support_rate": null,
-        "uncertainty_correct_rate": 0.9
-      },
-      "multi": {
-        "reviewed": 10,
-        "key_point_coverage": 1.0,
-        "factual_error_rate": 0.2,
-        "source_support_rate": 0.7,
-        "uncertainty_correct_rate": 0.9
-      },
-      "visual": {
-        "reviewed": 6,
-        "key_point_coverage": 1.0,
         "factual_error_rate": 0.1667,
         "source_support_rate": 0.8333,
         "uncertainty_correct_rate": 0.8333
       },
+      "single_no_rag": {
+        "reviewed": 30,
+        "key_point_coverage": 0.7167,
+        "factual_error_rate": 0.4,
+        "source_support_rate": null,
+        "uncertainty_correct_rate": 0.6
+      },
+      "multi": {
+        "reviewed": 10,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.0,
+        "source_support_rate": 1.0,
+        "uncertainty_correct_rate": 1.0
+      },
+      "visual": {
+        "reviewed": 6,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.0,
+        "source_support_rate": 1.0,
+        "uncertainty_correct_rate": 1.0
+      },
       "code": {
         "reviewed": 6,
         "key_point_coverage": 1.0,
-        "factual_error_rate": 0.3333,
+        "factual_error_rate": 0.5,
         "source_support_rate": null,
-        "uncertainty_correct_rate": 0.6667
+        "uncertainty_correct_rate": 0.5
       }
     },
     "matched_composite": {
       "single_rag": {
         "cases": 10,
         "key_point_coverage": 1.0,
-        "factual_error_rate": 0.3
+        "factual_error_rate": 0.2
       },
       "single_no_rag": {
         "cases": 10,
-        "key_point_coverage": 0.75,
-        "factual_error_rate": 0.3
+        "key_point_coverage": 0.65,
+        "factual_error_rate": 0.5
       },
       "multi": {
         "cases": 10,
         "key_point_coverage": 1.0,
-        "factual_error_rate": 0.2
+        "factual_error_rate": 0.0
       }
     }
   },
