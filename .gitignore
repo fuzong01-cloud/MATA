@@ -20,3 +20,5 @@ knowledge_base/source/*
 uploads/
 .pytest_cache/
 *.log
+evaluation/private/
+evaluation/results/raw/

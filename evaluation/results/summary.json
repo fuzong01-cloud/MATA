@@ -1,0 +1,152 @@
+{
+  "snapshot_sha256": "a6332da8d25ed6e9c0500a6e51fb3fe86350bc96fa091f533020735ee1b5011e",
+  "model": "qwen3.8-flash",
+  "cases": 42,
+  "calls_used": 102,
+  "call_cap": 120,
+  "finished_calls": 102,
+  "retrieval": {
+    "cases": 30,
+    "recall_at_5": 0.8,
+    "source_document_hit_rate": 0.8667,
+    "page_hit_cases": [
+      "T02",
+      "T03",
+      "T04",
+      "T06",
+      "T07",
+      "T08",
+      "T09",
+      "T10",
+      "T11",
+      "T14",
+      "T17",
+      "T18",
+      "T19",
+      "T20",
+      "T21",
+      "T22",
+      "T23",
+      "T24",
+      "T25",
+      "T26",
+      "T27",
+      "T28",
+      "T29",
+      "T30"
+    ],
+    "page_miss_cases": [
+      "T01",
+      "T05",
+      "T12",
+      "T13",
+      "T15",
+      "T16"
+    ]
+  },
+  "arms": {
+    "single_rag": {
+      "attempts": 30,
+      "successes": 30,
+      "mean_latency_seconds": 6.36,
+      "prompt_tokens": 48355,
+      "completion_tokens": 15946,
+      "valid_citation_rate": 1.0
+    },
+    "single_no_rag": {
+      "attempts": 30,
+      "successes": 30,
+      "mean_latency_seconds": 8.54,
+      "prompt_tokens": 14768,
+      "completion_tokens": 19175,
+      "valid_citation_rate": null
+    },
+    "visual": {
+      "attempts": 6,
+      "successes": 6,
+      "mean_latency_seconds": 5.6,
+      "prompt_tokens": 15024,
+      "completion_tokens": 2388,
+      "valid_citation_rate": null
+    },
+    "code": {
+      "attempts": 6,
+      "successes": 6,
+      "mean_latency_seconds": 10.77,
+      "prompt_tokens": 1903,
+      "completion_tokens": 4960,
+      "valid_citation_rate": null
+    },
+    "multi": {
+      "attempts": 10,
+      "successes": 10,
+      "mean_latency_seconds": 23.48,
+      "prompt_tokens": 60926,
+      "completion_tokens": 20815,
+      "valid_citation_rate": 1.0
+    }
+  },
+  "manual_review": {
+    "reviewed": 82,
+    "total_review_rows": 82,
+    "complete": true,
+    "by_arm": {
+      "single_rag": {
+        "reviewed": 30,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.2667,
+        "source_support_rate": 0.8,
+        "uncertainty_correct_rate": 0.9333
+      },
+      "single_no_rag": {
+        "reviewed": 30,
+        "key_point_coverage": 0.7667,
+        "factual_error_rate": 0.2333,
+        "source_support_rate": null,
+        "uncertainty_correct_rate": 0.9
+      },
+      "multi": {
+        "reviewed": 10,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.2,
+        "source_support_rate": 0.7,
+        "uncertainty_correct_rate": 0.9
+      },
+      "visual": {
+        "reviewed": 6,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.1667,
+        "source_support_rate": 0.8333,
+        "uncertainty_correct_rate": 0.8333
+      },
+      "code": {
+        "reviewed": 6,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.3333,
+        "source_support_rate": null,
+        "uncertainty_correct_rate": 0.6667
+      }
+    },
+    "matched_composite": {
+      "single_rag": {
+        "cases": 10,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.3
+      },
+      "single_no_rag": {
+        "cases": 10,
+        "key_point_coverage": 0.75,
+        "factual_error_rate": 0.3
+      },
+      "multi": {
+        "cases": 10,
+        "key_point_coverage": 1.0,
+        "factual_error_rate": 0.2
+      }
+    }
+  },
+  "limitations": [
+    "引用编号有效不代表语义支持，source_support 仅以人工复核计。",
+    "课程资料与模型逐条输出保存在本机，公开汇总不含原文。"
+  ]
+}

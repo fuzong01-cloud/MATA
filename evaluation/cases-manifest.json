@@ -1,0 +1,257 @@
+{
+  "snapshot_sha256": "a6332da8d25ed6e9c0500a6e51fb3fe86350bc96fa091f533020735ee1b5011e",
+  "cases": [
+    {
+      "id": "T01",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "Web开发"
+    },
+    {
+      "id": "T02",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "Web开发"
+    },
+    {
+      "id": "T03",
+      "kind": "text",
+      "type": "operation",
+      "module": "Web开发"
+    },
+    {
+      "id": "T04",
+      "kind": "text",
+      "type": "operation",
+      "module": "Web开发"
+    },
+    {
+      "id": "T05",
+      "kind": "text",
+      "type": "operation",
+      "module": "Web开发"
+    },
+    {
+      "id": "T06",
+      "kind": "text",
+      "type": "composite",
+      "module": "Web开发"
+    },
+    {
+      "id": "T07",
+      "kind": "text",
+      "type": "composite",
+      "module": "Web开发"
+    },
+    {
+      "id": "T08",
+      "kind": "text",
+      "type": "composite",
+      "module": "Web开发"
+    },
+    {
+      "id": "T09",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "Android开发"
+    },
+    {
+      "id": "T10",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "Android开发"
+    },
+    {
+      "id": "T11",
+      "kind": "text",
+      "type": "operation",
+      "module": "Android开发"
+    },
+    {
+      "id": "T12",
+      "kind": "text",
+      "type": "operation",
+      "module": "Android开发"
+    },
+    {
+      "id": "T13",
+      "kind": "text",
+      "type": "operation",
+      "module": "Android开发"
+    },
+    {
+      "id": "T14",
+      "kind": "text",
+      "type": "composite",
+      "module": "Android开发"
+    },
+    {
+      "id": "T15",
+      "kind": "text",
+      "type": "composite",
+      "module": "Android开发"
+    },
+    {
+      "id": "T16",
+      "kind": "text",
+      "type": "composite",
+      "module": "Android开发"
+    },
+    {
+      "id": "T17",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T18",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T19",
+      "kind": "text",
+      "type": "operation",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T20",
+      "kind": "text",
+      "type": "operation",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T21",
+      "kind": "text",
+      "type": "composite",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T22",
+      "kind": "text",
+      "type": "composite",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T23",
+      "kind": "text",
+      "type": "operation",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "T24",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "T25",
+      "kind": "text",
+      "type": "knowledge",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "T26",
+      "kind": "text",
+      "type": "operation",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "T27",
+      "kind": "text",
+      "type": "operation",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "T28",
+      "kind": "text",
+      "type": "composite",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "T29",
+      "kind": "text",
+      "type": "composite",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "T30",
+      "kind": "text",
+      "type": "operation",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "V01",
+      "kind": "visual",
+      "type": "visual",
+      "module": "Web开发"
+    },
+    {
+      "id": "V02",
+      "kind": "visual",
+      "type": "visual",
+      "module": "Android开发"
+    },
+    {
+      "id": "V03",
+      "kind": "visual",
+      "type": "visual",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "V04",
+      "kind": "visual",
+      "type": "visual",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "V05",
+      "kind": "visual",
+      "type": "visual",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "V06",
+      "kind": "visual",
+      "type": "visual",
+      "module": "虚拟仿真"
+    },
+    {
+      "id": "C01",
+      "kind": "code",
+      "type": "code",
+      "module": "Web开发"
+    },
+    {
+      "id": "C02",
+      "kind": "code",
+      "type": "code",
+      "module": "Web开发"
+    },
+    {
+      "id": "C03",
+      "kind": "code",
+      "type": "code",
+      "module": "Android开发"
+    },
+    {
+      "id": "C04",
+      "kind": "code",
+      "type": "code",
+      "module": "Android开发"
+    },
+    {
+      "id": "C05",
+      "kind": "code",
+      "type": "code",
+      "module": "嵌入式开发"
+    },
+    {
+      "id": "C06",
+      "kind": "code",
+      "type": "code",
+      "module": "虚拟仿真"
+    }
+  ]
+}

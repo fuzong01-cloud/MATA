@@ -36,7 +36,7 @@ def test_model_stream_uses_slide_text_and_only_final_content(monkeypatch):
     assert "Web课程.pptx" in calls[0]["messages"][1]["content"]
     assert "第 12 页" in calls[0]["messages"][1]["content"]
     assert calls[0]["stream"] is True
-    assert calls[0]["extra_body"] == {"enable_thinking": True}
+    assert calls[0]["extra_body"] == {"enable_thinking": True, "thinking_budget": 4096}
     assert "temperature" not in calls[0]
 
 
